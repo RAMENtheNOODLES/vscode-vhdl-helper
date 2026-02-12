@@ -1,4 +1,4 @@
-name: Release – Publish VSCode Extension
+name: Release - Publish VSCode Extension
 
 on:
   pull_request:
@@ -88,9 +88,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      
       - name: Get package version
         id: package_version
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT
+
 
       - name: Compute tag
         id: tag
