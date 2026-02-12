@@ -1,0 +1,75 @@
+name: Release - Publish VSCode Extension
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vscode-ext-release-${{ github.ref || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    # Only run if:
+    # - Manually triggered, OR
+    # - A PR to main was closed AND merged
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'closed' &&
+       github.event.pull_request.merged == true &&
+       github.event.pull_request.base.ref == 'main')
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile extension
+        run: npm run compile
+
+      # 🔒 Guard: Fail if package.json version did not change vs previous main commit
+      # Skipped for manual runs to allow explicit overrides.
+      - name: Guard – fail if version did not change
+        if: github.event_name != 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # First parent of HEAD (previous tip of main before the merge)
+          prev_commit=$(git rev-parse HEAD^)
+
+          # Current version
+          cur_ver=$(node -p "require('./package.json').version")
+
+          # Get previous package.json content (if it existed)
+          if ! prev_pkg=$(git show "${prev_commit}:package.json"); then
+            echo "Previous commit has no package.json; skipping guard."
+            exit 0
+          fi
+
+          # Parse previous version
+          prev_ver=$(node -e "const fs=require('fs'); const d=fs.readFileSync(0,'utf8'); console.log(JSON.parse(d).version)" <<<"$prev_pkg")
+
+          echo "Current version:  $cur_ver"
+          echo "Previous version: $prev_ver"
+
+          if [ "$cur_ver" = "$prev_ver" ]; then
