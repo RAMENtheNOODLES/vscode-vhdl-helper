@@ -1,4 +1,4 @@
-name: Release - Publish VSCode Extension
+name: Release – Publish VSCode Extension
 
 on:
   pull_request:
@@ -73,3 +73,50 @@ jobs:
           echo "Previous version: $prev_ver"
 
           if [ "$cur_ver" = "$prev_ver" ]; then
+            echo "::error::package.json version did not change (still $cur_ver). Please bump the version before merging to main."
+            exit 1
+          fi
+
+      - name: Package extension
+        run: npx vsce package --out vhdl-helper.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhdl-helper-vsix
+          path: vhdl-helper.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Get package version
+        id: package_version
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Compute tag
+        id: tag
+        run: echo "value=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: tag_check
+        run: |
+          tag="${{ steps.tag.outputs.value }}"
+          if git show-ref --tags --quiet --verify "refs/tags/$tag"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish -p "$VSCE_PAT" --packagePath vhdl-helper.vsix --skip-duplicate
+
+      - name: Create GitHub release
+        if: steps.tag_check.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          generate_release_notes: true
+          files: vhdl-helper.vsix
+          make_latest: true
