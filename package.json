@@ -1,7 +1,7 @@
 {
   "name": "vhdl-helper",
   "displayName": "VHDL Helper (Snippets + COMPONENT→DUT)",
-  "description": "VHDL snippets and a command to convert a COMPONENT declaration (from clipboard) into a DUT PORT MAP.",
+  "description": "VHDL snippets plus a command that converts clipboard COMPONENT declarations into DUT PORT MAP text in the editor.",
   "version": "0.0.3",
   "publisher": "CookieJAR499",
   "engines": {
