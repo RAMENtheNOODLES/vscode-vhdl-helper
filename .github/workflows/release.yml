@@ -93,7 +93,7 @@ jobs:
         id: package_version
         shell: bash
         run: |
-          node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT
+          node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
 
 
       - name: Compute tag
