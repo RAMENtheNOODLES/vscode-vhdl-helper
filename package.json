@@ -1,0 +1,50 @@
+{
+  "name": "vhdl-helper",
+  "displayName": "VHDL Helper (Snippets + COMPONENT→DUT)",
+  "description": "VHDL snippets and a command to convert a COMPONENT declaration (from clipboard) into a DUT PORT MAP.",
+  "version": "0.0.3",
+  "publisher": "CookieJAR499",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Snippets",
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:vhdl",
+    "onCommand:vhdlHelper.clipboardComponentToDut"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "snippets": [
+      {
+        "language": "vhdl",
+        "path": "./snippets/vhdl_snippets.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "vhdlHelper.clipboardComponentToDut",
+        "title": "VHDL: Clipboard COMPONENT → DUT PORT MAP"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "vhdlHelper.clipboardComponentToDut",
+        "key": "ctrl+alt+d",
+        "when": "editorTextFocus && editorLangId == vhdl"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vsce": "^2.15.0"
+  }
+}

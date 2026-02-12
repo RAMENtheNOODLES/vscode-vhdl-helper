@@ -1,0 +1,89 @@
+{
+  "Header": {
+    "prefix": "header",
+    "body": [
+      "--========================================",
+      "--",
+      "-- Author:\tCarter Rommelfanger",
+      "-- Date:\t$CURRENT_MONTH_NAME $CURRENT_DATE, $CURRENT_YEAR",
+      "-- Course:\tCPE1500",
+      "--",
+      "-- Description: $1",
+      "--\t\t${2:}",
+      "--\t\t${3:}",
+      "--\t\tY=${4:}",
+      "--========================================",
+      "",
+      "-- Library Declaration",
+      "LIBRARY ieee;",
+      "USE ieee.std_logic_1164.all;",
+      "",
+      "$0"
+    ]
+  },
+  "Vector": {
+    "prefix": "vector",
+    "body": [
+      "STD_LOGIC_VECTOR($3 ${4|DOWNTO,TO|} $5);",
+      "$0"
+    ]
+  },
+  "Entity": {
+    "prefix": "entity",
+    "description": "Create an entity",
+    "body": [
+      "ENTITY $TM_FILENAME_BASE IS",
+      "PORT (",
+      "\t$1",
+      ");",
+      "END $TM_FILENAME_BASE;\n\n$0"
+    ]
+  },
+  "PortDesc": {
+    "prefix": "portd",
+    "description": "Create a port description",
+    "body": [
+      "${1|i,o|}_$2\t\t: ${3|IN ,OUT|} STD_LOGIC;$0"
+    ]
+  },
+  "Signal": {
+    "prefix": "signal",
+    "description": "Signal template",
+    "body": [
+      "SIGNAL $1 : ${2|STD_LOGIC,vector|};\n$0"
+    ]
+  },
+  "Architecture": {
+    "prefix": "arch,architecture",
+    "description": "Architecture template",
+    "body": [
+      "ARCHITECTURE ${1|rtl,behavorial,struct|} OF $TM_FILENAME_BASE IS",
+      "-- COMPONENTS",
+      "$2\n",
+      "-- SIGNALS",
+      "$3\n",
+      "BEGIN\n",
+      "$0\n",
+      "END $1;"
+    ]
+  },
+  "Entity to Component (from Clipboard)": {
+    "prefix": ["entity2component", "e2c"],
+    "description": "Convert a VHDL ENTITY (from clipboard) into a COMPONENT declaration",
+    "body": [
+      "COMPONENT ${1:${CLIPBOARD/[\\s\\S]*?ENTITY\\s+(\\w+)\\s+IS[\\s\\S]*/$1/}} IS",
+      "PORT (",
+      "${CLIPBOARD/[\\s\\S]*?PORT\\s*\\(([\\s\\S]*?)\\)[\\s\\S]*/$1/}",
+      "\t);",
+      "END COMPONENT;"
+    ]
+  },
+  "Clipboard COMPONENT to DUT (command hint)": {
+    "prefix": "c2d",
+    "description": "Hint: Use Ctrl+Alt+D to convert clipboard COMPONENT to DUT PORT MAP",
+    "body": [
+      "-- Press Ctrl+Alt+D to insert DUT PORT MAP from clipboard COMPONENT",
+      "$0"
+    ]
+  }
+}
