@@ -2,6 +2,7 @@ name: Build VSCode extension
 
 on:
   push:
+  workflow_dispatch:
 
 permissions:
   contents: read
