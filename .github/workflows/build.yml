@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -32,13 +34,23 @@ jobs:
         if: github.ref == 'refs/heads/main'
         id: package_version
         run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+      - name: Check release tag
+        if: github.ref == 'refs/heads/main'
+        id: tag_check
+        run: |
+          tag="v${{ steps.package_version.outputs.version }}"
+          if git show-ref --tags --quiet --verify "refs/tags/$tag"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to VS Code Marketplace
         if: github.ref == 'refs/heads/main'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish -p "$VSCE_PAT" --packagePath vhdl-helper.vsix
+        run: npx vsce publish -p "$VSCE_PAT" --packagePath vhdl-helper.vsix --skip-duplicate
       - name: Create GitHub release
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && steps.tag_check.outputs.exists != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.package_version.outputs.version }}
