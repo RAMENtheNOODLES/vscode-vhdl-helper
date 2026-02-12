@@ -4,9 +4,9 @@
     "body": [
       "--========================================",
       "--",
-      "-- Author:\tCarter Rommelfanger",
+      "-- Author:\t Your NAME",
       "-- Date:\t$CURRENT_MONTH_NAME $CURRENT_DATE, $CURRENT_YEAR",
-      "-- Course:\tCPE1500",
+      "-- Course:\t YOUR Course",
       "--",
       "-- Description: $1",
       "--\t\t${2:}",
