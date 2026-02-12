@@ -1,4 +1,4 @@
-name: Release - Publish VSCode Extension
+name: Release – GitHub Only (VSIX attached)
 
 on:
   pull_request:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   release:
-    # Only run if:
+    # Run when:
     # - Manually triggered, OR
     # - A PR to main was closed AND merged
     if: >
@@ -46,30 +46,73 @@ jobs:
       - name: Compile extension
         run: npm run compile
 
-      # 🔒 Guard: Fail if package.json version did not change vs previous main commit
-      # Skipped for manual runs to allow explicit overrides.
+      # 🔒 Guard: fail if package.json version did not change vs previous main commit
+      # (Skip on manual runs to allow explicit overrides.)
       - name: Guard – fail if version did not change
         if: github.event_name != 'workflow_dispatch'
         shell: bash
         run: |
           set -euo pipefail
 
-          # First parent of HEAD (previous tip of main before the merge)
           prev_commit=$(git rev-parse HEAD^)
 
-          # Current version
-          cur_ver=$(node -p "require('./package.json').version")
+          cur_ver=$(node -e "console.log(require('./package.json').version)")
 
-          # Get previous package.json content (if it existed)
           if ! prev_pkg=$(git show "${prev_commit}:package.json"); then
             echo "Previous commit has no package.json; skipping guard."
             exit 0
           fi
 
-          # Parse previous version
           prev_ver=$(node -e "const fs=require('fs'); const d=fs.readFileSync(0,'utf8'); console.log(JSON.parse(d).version)" <<<"$prev_pkg")
 
           echo "Current version:  $cur_ver"
           echo "Previous version: $prev_ver"
 
           if [ "$cur_ver" = "$prev_ver" ]; then
+            echo "::error::package.json version did not change (still $cur_ver). Please bump the version before merging to main."
+            exit 1
+          fi
+
+      - name: Package extension
+        run: npx vsce package --out vhdl-helper.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vhdl-helper-vsix
+          path: vhdl-helper.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Compute tag (vX.Y.Z)
+        id: tag
+        shell: bash
+        run: |
+          node -e "console.log('value=v' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: tag_check
+        shell: bash
+        run: |
+          tag="${{ steps.tag.outputs.value }}"
+          if git show-ref --tags --quiet --verify "refs/tags/$tag"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub release (with VSIX)
+        if: steps.tag_check.outputs.exists != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          name: ${{ steps.tag.outputs.value }}
+          generate_release_notes: true
+          files: vhdl-helper.vsix
+          make_latest: true
+
+      - name: Log when tag already exists (idempotent)
+        if: steps.tag_check.outputs.exists == 'true'
+        shell: bash
+        run: |
+          echo "Tag ${{ steps.tag.outputs.value }} already exists. Skipping release creation."
