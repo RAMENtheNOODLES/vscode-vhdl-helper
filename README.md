@@ -18,6 +18,14 @@ VHDL Helper is a Visual Studio Code extension that provides VHDL snippets and a 
 - **VHDL: Clipboard COMPONENT → DUT PORT MAP** (`vhdlHelper.clipboardComponentToDut`)
   - Default keybinding: `Ctrl+Alt+D`
 
+## VSIX Package
+
+To build the VSIX locally:
+
+1. `npm ci`
+2. `npm run compile`
+3. `npx vsce package --out vhdl-helper.vsix`
+
 ## AI Authorship Notice
 
 Most of the code in this repository was written by AI, but it has been verified by a competent human.
