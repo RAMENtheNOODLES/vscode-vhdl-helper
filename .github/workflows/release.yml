@@ -87,18 +87,18 @@ jobs:
           path: vhdl-helper.vsix
           if-no-files-found: error
           retention-days: 14
-
       
       - name: Get package version
         id: package_version
         shell: bash
         run: |
           node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
-
-
+      
       - name: Compute tag
         id: tag
-        run: echo "value=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          node -e "console.log('value=v' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
 
       - name: Check if tag exists
         id: tag_check
