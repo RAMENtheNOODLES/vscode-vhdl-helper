@@ -2,7 +2,7 @@
   "name": "vhdl-helper",
   "displayName": "VHDL Helper (Snippets + COMPONENT→DUT)",
   "description": "VHDL snippets plus a command that converts clipboard COMPONENT declarations into DUT PORT MAP text in the editor.",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publisher": "CookieJAR499",
   "engines": {
     "vscode": "^1.85.0"
@@ -11,28 +11,26 @@
     "Snippets",
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onLanguage:vhdl",
-    "onCommand:vhdlHelper.clipboardComponentToDut"
-  ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:vhdlHelper.clipboardComponentToDut",
+    "onCommand:vhdlHelper.clipboardComponentToSignals"
+  ],
   "contributes": {
-    "snippets": [
-      {
-        "language": "vhdl",
-        "path": "./snippets/vhdl_snippets.json"
-      }
-    ],
     "commands": [
       {
         "command": "vhdlHelper.clipboardComponentToDut",
-        "title": "VHDL: Clipboard COMPONENT → DUT PORT MAP"
+        "title": "VHDL Helper: Clipboard COMPONENT → DUT PORT MAP"
+      },
+      {
+        "command": "vhdlHelper.clipboardComponentToSignals",
+        "title": "VHDL Helper: Clipboard COMPONENT → SIGNAL declarations"
       }
     ],
     "keybindings": [
       {
-        "command": "vhdlHelper.clipboardComponentToDut",
-        "key": "ctrl+alt+d",
+        "command": "vhdlHelper.clipboardComponentToSignals",
+        "key": "ctrl+alt+s",
         "when": "editorTextFocus && editorLangId == vhdl"
       }
     ]
