@@ -38,6 +38,11 @@
         "command": "vhdlHelper.clipboardComponentToSignals",
         "key": "ctrl+alt+s",
         "when": "editorTextFocus && editorLangId == vhdl"
+      },
+      {
+        "command": "vhdlHelper.clipboardComponentToDut",
+        "key": "ctrl+alt+d",
+        "when": "editorTextFocus && editorLangId == vhdl"
       }
     ]
   },
