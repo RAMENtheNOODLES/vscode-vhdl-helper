@@ -43,7 +43,7 @@
     "prefix": "portd",
     "description": "Create a port description",
     "body": [
-      "${1|i,o|}_$2\t\t: ${3|IN ,OUT|} STD_LOGIC;$0"
+      "${1|i,o|}_$2\t\t: ${3|IN ,OUT|} ${4|STD_LOGIC,vector|};$0"
     ]
   },
   "Signal": {
