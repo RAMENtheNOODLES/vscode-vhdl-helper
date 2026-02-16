@@ -24,8 +24,7 @@
   "Vector": {
     "prefix": "vector",
     "body": [
-      "STD_LOGIC_VECTOR($3 ${4|DOWNTO,TO|} $5);",
-      "$0"
+      "STD_LOGIC_VECTOR($3 ${4|DOWNTO,TO|} $5);$0"
     ]
   },
   "Entity": {
@@ -35,7 +34,14 @@
       "ENTITY $TM_FILENAME_BASE IS",
       "PORT (",
       "\t$1",
-      "\t);",
+      ");",
+      "END $TM_FILENAME_BASE;\n\n$0"
+    ]
+  },
+  "BlankEntity": {
+    "prefix": "entity_blank,eb",
+    "body": [
+      "ENTITY $TM_FILENAME_BASE IS",
       "END $TM_FILENAME_BASE;\n\n$0"
     ]
   },
@@ -43,7 +49,7 @@
     "prefix": "portd",
     "description": "Create a port description",
     "body": [
-      "${1|i,o|}_$2\t\t: ${3|IN ,OUT|} ${4|STD_LOGIC,vector|};$0"
+      "${1|i,o|}_$2\t\t: ${3|IN ,OUT|} ${4|STD_LOGIC,vector|}$0"
     ]
   },
   "Signal": {
@@ -67,6 +73,15 @@
       "END $1;"
     ]
   },
+  "Process": {
+    "prefix": "process,proc",
+    "body": [
+      "$1 : PROCESS",
+      "BEGIN",
+      "$0",
+      "END PROCESS;"
+    ]
+  },
   "Entity to Component (from Clipboard)": {
     "prefix": ["entity2component", "e2c"],
     "description": "Convert a VHDL ENTITY (from clipboard) into a COMPONENT declaration",
@@ -74,7 +89,7 @@
       "COMPONENT ${1:${CLIPBOARD/[\\s\\S]*?ENTITY\\s+(\\w+)\\s+IS[\\s\\S]*/$1/}} IS",
       "PORT (",
       "${CLIPBOARD/[\\s\\S]*?PORT\\s*\\(([\\s\\S]*?)\\)[\\s\\S]*/$1/}",
-      "\t);",
+      ");",
       "END COMPONENT;"
     ]
   },
