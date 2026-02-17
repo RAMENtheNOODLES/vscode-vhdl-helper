@@ -6,6 +6,7 @@ VHDL Helper is a Visual Studio Code extension that provides VHDL snippets and a 
 
 - VHDL snippets for common language patterns.
 - A command that converts clipboard COMPONENT declarations into DUT PORT MAP text.
+- A header snippet that can prefill author and course from settings.
 
 ## Usage
 
@@ -17,6 +18,11 @@ VHDL Helper is a Visual Studio Code extension that provides VHDL snippets and a 
 
 - **VHDL: Clipboard COMPONENT → DUT PORT MAP** (`vhdlHelper.clipboardComponentToDut`)
   - Default keybinding: `Ctrl+Alt+D`
+
+## Settings
+
+- `vhdlHelper.authorName`: Default author name used in the VHDL header snippet.
+- `vhdlHelper.courseName`: Default course name used in the VHDL header snippet.
 
 ## AI Authorship Notice
 

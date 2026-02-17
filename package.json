@@ -13,6 +13,7 @@
   ],
   "main": "./out/extension.js",
   "activationEvents": [
+    "onLanguage:vhdl",
     "onCommand:vhdlHelper.clipboardComponentToDut",
     "onCommand:vhdlHelper.clipboardComponentToSignals"
   ],
@@ -44,7 +45,22 @@
         "key": "ctrl+alt+d",
         "when": "editorTextFocus && editorLangId == vhdl"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "VHDL Helper",
+      "properties": {
+        "vhdlHelper.authorName": {
+          "type": "string",
+          "default": "",
+          "description": "Default author name used in the VHDL header snippet."
+        },
+        "vhdlHelper.courseName": {
+          "type": "string",
+          "default": "",
+          "description": "Default course name used in the VHDL header snippet."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

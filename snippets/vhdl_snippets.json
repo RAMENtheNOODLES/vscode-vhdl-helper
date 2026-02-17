@@ -1,26 +1,4 @@
 {
-  "Header": {
-    "prefix": "header",
-    "body": [
-      "--========================================",
-      "--",
-      "-- Author:\t$1",
-      "-- Date:\t$CURRENT_MONTH_NAME $CURRENT_DATE, $CURRENT_YEAR",
-      "-- Course:\t$2",
-      "--",
-      "-- Description: $3",
-      "--\t\t${4:}",
-      "--\t\t${5:}",
-      "--\t\tY=${6:}",
-      "--========================================",
-      "",
-      "-- Library Declaration",
-      "LIBRARY ieee;",
-      "USE ieee.std_logic_1164.all;",
-      "",
-      "$0"
-    ]
-  },
   "Vector": {
     "prefix": "vector",
     "body": [
