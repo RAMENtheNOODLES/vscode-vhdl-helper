@@ -108,10 +108,13 @@ function buildHeaderSnippet(authorName: string, courseName: string): vscode.Snip
 --
 -- Author:\t`);
   snippet.appendPlaceholder(authorName, 1);
-  snippet.appendText(
-    `\n-- Date:\t$CURRENT_MONTH_NAME $CURRENT_DATE, $CURRENT_YEAR
--- Course:\t`
-  );
+  snippet.appendText(`\n-- Date:\t`);
+  snippet.appendVariable('CURRENT_MONTH_NAME');
+  snippet.appendText(' ');
+  snippet.appendVariable('CURRENT_DATE');
+  snippet.appendText(', ');
+  snippet.appendVariable('CURRENT_YEAR');
+  snippet.appendText(`\n-- Course:\t`);
   snippet.appendPlaceholder(courseName, 2);
   snippet.appendText(`\n--
 -- Description: `);
