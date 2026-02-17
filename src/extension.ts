@@ -69,10 +69,71 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  context.subscriptions.push(toDutDisposable, toSignalsDisposable);
+  const headerCompletionProvider = vscode.languages.registerCompletionItemProvider(
+    'vhdl',
+    {
+      provideCompletionItems(document, position) {
+        const config = vscode.workspace.getConfiguration('vhdlHelper');
+        const authorName = config.get<string>('authorName') ?? '';
+        const courseName = config.get<string>('courseName') ?? '';
+        const item = new vscode.CompletionItem(
+          'header',
+          vscode.CompletionItemKind.Snippet
+        );
+        item.detail = 'VHDL Helper: Header snippet';
+        item.insertText = buildHeaderSnippet(authorName, courseName);
+        item.preselect = true;
+        item.sortText = '0';
+        const range = document.getWordRangeAtPosition(position, /\w+/);
+        if (range) {
+          item.range = range;
+        }
+        return [item];
+      },
+    }
+  );
+
+  context.subscriptions.push(
+    toDutDisposable,
+    toSignalsDisposable,
+    headerCompletionProvider
+  );
 }
 
 export function deactivate() {}
+
+function buildHeaderSnippet(authorName: string, courseName: string): vscode.SnippetString {
+  const snippet = new vscode.SnippetString();
+  snippet.appendText(`--========================================
+--
+-- Author:\t`);
+  snippet.appendPlaceholder(authorName, 1);
+  snippet.appendText(
+    `\n-- Date:\t$CURRENT_MONTH_NAME $CURRENT_DATE, $CURRENT_YEAR
+-- Course:\t`
+  );
+  snippet.appendPlaceholder(courseName, 2);
+  snippet.appendText(`\n--
+-- Description: `);
+  snippet.appendPlaceholder('', 3);
+  snippet.appendText(`\n--\t\t`);
+  snippet.appendPlaceholder('', 4);
+  snippet.appendText(`\n--\t\t`);
+  snippet.appendPlaceholder('', 5);
+  snippet.appendText(`\n--\t\tY=`);
+  snippet.appendPlaceholder('', 6);
+  snippet.appendText(
+    `\n--========================================
+
+-- Library Declaration
+LIBRARY ieee;
+USE ieee.std_logic_1164.all;
+
+`
+  );
+  snippet.appendTabstop(0);
+  return snippet;
+}
 
 /**
  * Transform a VHDL COMPONENT declaration (from clipboard) into a DUT PORT MAP.
