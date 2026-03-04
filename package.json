@@ -20,14 +20,22 @@
     "onLanguage:vhdl"
   ],
   "contributes": {
-    "languages": [{
-      "id": "vhdl",
-      "aliases": ["VHDL", "vhdl"],
-      "extensions": [
-        ".vhd", ".vhdl", ".vho", ".vht"
-      ],
-      "configuration": "./language-configuration.json"
-    }],
+    "languages": [
+      {
+        "id": "vhdl",
+        "aliases": [
+          "VHDL",
+          "vhdl"
+        ],
+        "extensions": [
+          ".vhd",
+          ".vhdl",
+          ".vho",
+          ".vht"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
     "grammars": [
       {
         "language": "vhdl",
@@ -63,26 +71,75 @@
         "when": "editorTextFocus && editorLangId == vhdl"
       }
     ],
-    "configuration": {
-      "title": "VHDL Helper",
-      "properties": {
-        "vhdlHelper.authorName": {
-          "type": "string",
-          "default": "",
-          "description": "Default author name used in the VHDL header snippet."
-        },
-        "vhdlHelper.courseName": {
-          "type": "string",
-          "default": "",
-          "description": "Default course name used in the VHDL header snippet."
+    "configuration": [
+      {
+        "title": "VHDL Helper",
+        "properties": {
+          "vhdlHelper.authorName": {
+            "type": "string",
+            "default": "",
+            "description": "Default author name used in the VHDL header snippet."
+          },
+          "vhdlHelper.courseName": {
+            "type": "string",
+            "default": "",
+            "description": "Default course name used in the VHDL header snippet."
+          }
+        }
+      },
+      {
+        "title": "VHDL",
+        "properties": {
+          "vhdl.languageStandard": {
+            "type": "string",
+            "enum": ["1987", "1993", "2002", "2008"],
+            "default": "2008",
+            "description": "VHDL language standard to use."
+          },
+          "vhdl.diagnostics.mode": {
+            "type": "string",
+            "enum": ["basic", "ghdl", "both", "off"],
+            "default": "both",
+            "description": "Diagnostics mode: basic (syntax only), ghdl (GHDL-based), both, or off."
+          },
+          "vhdl.ghdl.path": {
+            "type": "string",
+            "default": "",
+            "description": "Path to the GHDL executable. Leave empty to use PATH."
+          },
+          "vhdl.ghdl.args": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": [],
+            "description": "Extra command-line arguments passed to GHDL."
+          },
+          "vhdl.ghdl.run": {
+            "type": "string",
+            "enum": ["onSave", "onType"],
+            "default": "onSave",
+            "description": "When to run GHDL: on save or on type."
+          },
+          "vhdl.ghdl.debounceMs": {
+            "type": "number",
+            "default": 500,
+            "description": "Debounce delay (ms) before running GHDL diagnostics on type."
+          },
+          "vhdl.workspace.sourceGlobs": {
+            "type": "array",
+            "items": { "type": "string" },
+            "default": ["**/*.vhd", "**/*.vhdl", "**/*.vho", "**/*.vht"],
+            "description": "Glob patterns for VHDL source files included in the workspace."
+          }
         }
       }
-    }
+    ]
   },
   "capabilities": {
     "completionProvider": {
       "resolveProvider": "true",
-      "triggerCharacters": [ "." ]
+      "triggerCharacters": [
+        "."
+      ]
     }
   },
   "scripts": {
@@ -90,9 +147,15 @@
     "compile": "tsc -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
     "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
     "typescript": "^5.3.3",
     "vsce": "^2.15.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "optionalDependencies": {
+    "vhdl-language-server": "*"
   }
 }
