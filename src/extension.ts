@@ -93,10 +93,37 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const vhdlCompletionProvider = vscode.languages.registerCompletionItemProvider(
+    "vhdl",
+    {
+      provideCompletionItems(document, position) {
+        
+        const initialSignalRegexp = /signal\s*:\s*$/i
+
+        const lineOn = document.lineAt(position.line).text;
+
+        const items: vscode.CompletionItem[] = [];
+        
+        // Signals
+        if (lineOn.match(initialSignalRegexp)) {
+          items.push(
+            new vscode.CompletionItem('IN', vscode.CompletionItemKind.TypeParameter), 
+            new vscode.CompletionItem('OUT', vscode.CompletionItemKind.TypeParameter), 
+            new vscode.CompletionItem('INOUT', vscode.CompletionItemKind.TypeParameter)
+          );
+        }
+        
+        return items;
+      },
+    },
+    ' '
+  );
+
   context.subscriptions.push(
     toDutDisposable,
     toSignalsDisposable,
-    headerCompletionProvider
+    headerCompletionProvider,
+    vhdlCompletionProvider
   );
 }
 

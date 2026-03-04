@@ -64,9 +64,9 @@
     "prefix": ["entity2component", "e2c"],
     "description": "Convert a VHDL ENTITY (from clipboard) into a COMPONENT declaration",
     "body": [
-      "COMPONENT ${1:${CLIPBOARD/[\\s\\S]*?ENTITY\\s+(\\w+)\\s+IS[\\s\\S]*/$1/}} IS",
+      "COMPONENT ${1:${CLIPBOARD/[\\s\\S]*?\\bENTITY\\s+(\\w+)\\s+IS[\\s\\S]*/$1/}} IS",
       "PORT (",
-      "${CLIPBOARD/[\\s\\S]*?PORT\\s*\\(([\\s\\S]*?)\\)[\\s\\S]*/$1/}",
+      "${CLIPBOARD/[\\s\\S]*?\\bPORT\\s*\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*;?[\\s\\S]*/$1/}",
       ");",
       "END COMPONENT;"
     ]
