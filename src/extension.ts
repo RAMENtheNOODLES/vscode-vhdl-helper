@@ -1,6 +1,17 @@
 import * as vscode from 'vscode';
+import {
+  LanguageClient,
+  LanguageClientOptions,
+  ServerOptions,
+  TransportKind,
+} from 'vscode-languageclient/node';
+
+let client: LanguageClient | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
+  // --- LSP client ---
+  startLanguageClient(context);
+
   // Existing command: Clipboard COMPONENT -> DUT PORT MAP
   const toDutDisposable = vscode.commands.registerCommand(
     'vhdlHelper.clipboardComponentToDut',
@@ -127,7 +138,49 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {}
+export function deactivate(): Thenable<void> | undefined {
+  if (!client) {
+    return undefined;
+  }
+  return client.stop();
+}
+
+function startLanguageClient(context: vscode.ExtensionContext): void {
+  let serverModule: string;
+  try {
+    serverModule = require.resolve('vhdl-language-server/dist/server.js');
+  } catch {
+    // vhdl-language-server is not installed; skip LSP client startup.
+    return;
+  }
+
+  const serverOptions: ServerOptions = {
+    run: { module: serverModule, transport: TransportKind.stdio },
+    debug: { module: serverModule, transport: TransportKind.stdio },
+  };
+
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [
+      { scheme: 'file', language: 'vhdl' },
+      { scheme: 'untitled', language: 'vhdl' },
+    ],
+    synchronize: {
+      fileEvents: vscode.workspace.createFileSystemWatcher(
+        '**/*.{vhd,vhdl,vho,vht}'
+      ),
+    },
+  };
+
+  client = new LanguageClient(
+    'vhdlLanguageServer',
+    'VHDL Language Server',
+    serverOptions,
+    clientOptions
+  );
+
+  client.start();
+  context.subscriptions.push(client);
+}
 
 function buildHeaderSnippet(authorName: string, courseName: string): vscode.SnippetString {
   const snippet = new vscode.SnippetString();
