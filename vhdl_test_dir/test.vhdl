@@ -9,34 +9,19 @@
 --		
 --		
 --========================================
-
+--
 -- Library Declaration
 LIBRARY ieee;
 USE ieee.std_logic_1164.all;
 
 ENTITY CLC IS
-  this_is_not_vhdl
-END CLC;
-
-ENTITY CLC IS
 PORT (
-    i_a		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
-    i_b		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
-    i_cin   : IN    STD_LOGIC;
-    o_cout  : INOUT STD_LOGIC_VECTOR(4 DOWNTO 0);
-);
-END CLC;
-
-COMPONENT CLC IS
-PORT (
-
     i_a		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
     i_b		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
     i_cin   : IN    STD_LOGIC;
     o_cout  : INOUT STD_LOGIC_VECTOR(4 DOWNTO 0)
-
 );
-END COMPONENT;
+END CLC;
 
 ARCHITECTURE rtl OF CLC IS
 -- COMPONENTS
