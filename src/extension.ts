@@ -6,12 +6,25 @@ import {
   ServerOptions,
   TransportKind,
   Trace,
+  State
 } from 'vscode-languageclient/node';
 
 import * as path from 'path';
 
 let client: LanguageClient | undefined;
 let startCount = 0;
+
+const output = vscode.window.createOutputChannel('VHDL Language Server');
+const trace = vscode.window.createOutputChannel('VHDL LS Trace');
+
+function stateName(s: State): string {
+  switch (s) {
+    case State.Stopped: return 'Stopped';
+    case State.Starting: return 'Starting';
+    case State.Running: return 'Running';
+    default: return String(s);
+  }
+}
 
 export function activate(context: vscode.ExtensionContext) {
   // --- LSP client ---
@@ -120,53 +133,31 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
-  if (!client) {
-    return undefined;
-  }
-  return client.stop();
+  return client?.stop();
 }
 
 function startLanguageClient(context: vscode.ExtensionContext): void {
-  const output = vscode.window.createOutputChannel('VHDL Language Server');
-  const trace = vscode.window.createOutputChannel('VHDL LS Trace');
-  output.show(true);
   startCount += 1;
   output.appendLine(`[vhdl-helper] startLanguageClient() call #${startCount}`);
 
+  if (client) return;
+
   let serverModule: string;
-
-  if (client) {
-    return; // already started
-  }
-
   try {
     serverModule = require.resolve('vhdl-language-server/dist/server.js');
-  } catch {
+  } catch (e) {
+    output.appendLine(`[vhdl-helper] Failed to resolve server module: ${String(e)}`);
     return;
   }
 
-  const nodeExe = process.execPath; // VS Code's node
+  const nodeExe = process.execPath;
   const serverOptions: ServerOptions = {
-    run: {
-      command: nodeExe,
-      args: [serverModule, '--stdio'],
-      transport: TransportKind.stdio,
-    },
-    debug: {
-      command: nodeExe,
-      args: [serverModule, '--stdio'],
-      transport: TransportKind.stdio,
-    },
+    run: { command: nodeExe, args: [serverModule, '--stdio'], transport: TransportKind.stdio },
+    debug: { command: nodeExe, args: [serverModule, '--stdio'], transport: TransportKind.stdio },
   };
 
   const clientOptions: LanguageClientOptions = {
-    documentSelector: [
-      { scheme: 'file', language: 'vhdl' },
-      { scheme: 'untitled', language: 'vhdl' },
-    ],
-    synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{vhd,vhdl,vho,vht}'),
-    },
+    documentSelector: [{ scheme: 'file', language: 'vhdl' }],
     outputChannel: output,
     traceOutputChannel: trace,
     revealOutputChannelOn: RevealOutputChannelOn.Never,
@@ -179,27 +170,24 @@ function startLanguageClient(context: vscode.ExtensionContext): void {
     clientOptions
   );
 
+  client.onDidChangeState((e) => {
+    output.appendLine(`[client] state changed: ${stateName(e.oldState)} -> ${stateName(e.newState)}`);
+  });
+
   client.setTrace(Trace.Verbose);
 
-  client.onDidChangeState((e) =>
-    output.appendLine(`[client] state changed: ${e.oldState} -> ${e.newState}`)
+  // Correct lifecycle management for v9: start() returns Disposable
+  client.start().then(
+    () => output.appendLine('[client] start() resolved'),
+    (e) => output.appendLine(`[client] start() rejected: ${String(e)}`)
   );
 
-  try {
-    const started = client.start() as any;
-
-    if (started?.then) {
-      started.then(
-        () => output.appendLine('[client] start() resolved'),
-        (e: any) => output.appendLine(`[client] start() rejected: ${String(e)}`)
-      );
-    } else {
-      output.appendLine('[client] start() returned a Disposable');
-      context.subscriptions.push(started);
-    }
-  } catch (e) {
-    output.appendLine(`[client] start() threw: ${String(e)}`);
-  }
+  // Ensure it is stopped on extension deactivation
+  context.subscriptions.push({
+    dispose: () => {
+      void client?.stop();
+    },
+  });
 }
 
 function buildHeaderSnippet(authorName: string, courseName: string): vscode.SnippetString {

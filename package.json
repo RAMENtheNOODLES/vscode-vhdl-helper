@@ -92,8 +92,8 @@
         "properties": {
           "vhdl.languageStandard": {
             "type": "string",
-            "enum": ["1987", "1993", "2002", "2008"],
-            "default": "2008",
+            "enum": ["87", "93", "02", "08", "19"],
+            "default": "08",
             "description": "VHDL language standard to use."
           },
           "vhdl.diagnostics.mode": {
