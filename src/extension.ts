@@ -2,15 +2,23 @@ import * as vscode from 'vscode';
 import {
   LanguageClient,
   LanguageClientOptions,
+  RevealOutputChannelOn,
   ServerOptions,
   TransportKind,
+  Trace,
 } from 'vscode-languageclient/node';
 
+import * as path from 'path';
+
 let client: LanguageClient | undefined;
+let startCount = 0;
 
 export function activate(context: vscode.ExtensionContext) {
   // --- LSP client ---
-  startLanguageClient(context);
+  if (!client) {
+    console.log('[vhdl-helper] Launching Language Client');
+    startLanguageClient(context);
+  }
 
   // Existing command: Clipboard COMPONENT -> DUT PORT MAP
   const toDutDisposable = vscode.commands.registerCommand(
@@ -104,37 +112,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const vhdlCompletionProvider = vscode.languages.registerCompletionItemProvider(
-    "vhdl",
-    {
-      provideCompletionItems(document, position) {
-        
-        const initialSignalRegexp = /signal\s*:\s*$/i
-
-        const lineOn = document.lineAt(position.line).text;
-
-        const items: vscode.CompletionItem[] = [];
-        
-        // Signals
-        if (lineOn.match(initialSignalRegexp)) {
-          items.push(
-            new vscode.CompletionItem('IN', vscode.CompletionItemKind.TypeParameter), 
-            new vscode.CompletionItem('OUT', vscode.CompletionItemKind.TypeParameter), 
-            new vscode.CompletionItem('INOUT', vscode.CompletionItemKind.TypeParameter)
-          );
-        }
-        
-        return items;
-      },
-    },
-    ' '
-  );
-
   context.subscriptions.push(
     toDutDisposable,
     toSignalsDisposable,
-    headerCompletionProvider,
-    vhdlCompletionProvider
+    headerCompletionProvider
   );
 }
 
@@ -146,17 +127,36 @@ export function deactivate(): Thenable<void> | undefined {
 }
 
 function startLanguageClient(context: vscode.ExtensionContext): void {
+  const output = vscode.window.createOutputChannel('VHDL Language Server');
+  const trace = vscode.window.createOutputChannel('VHDL LS Trace');
+  output.show(true);
+  startCount += 1;
+  output.appendLine(`[vhdl-helper] startLanguageClient() call #${startCount}`);
+
   let serverModule: string;
+
+  if (client) {
+    return; // already started
+  }
+
   try {
     serverModule = require.resolve('vhdl-language-server/dist/server.js');
   } catch {
-    // vhdl-language-server is not installed; skip LSP client startup.
     return;
   }
 
+  const nodeExe = process.execPath; // VS Code's node
   const serverOptions: ServerOptions = {
-    run: { module: serverModule, transport: TransportKind.stdio },
-    debug: { module: serverModule, transport: TransportKind.stdio },
+    run: {
+      command: nodeExe,
+      args: [serverModule, '--stdio'],
+      transport: TransportKind.stdio,
+    },
+    debug: {
+      command: nodeExe,
+      args: [serverModule, '--stdio'],
+      transport: TransportKind.stdio,
+    },
   };
 
   const clientOptions: LanguageClientOptions = {
@@ -165,10 +165,11 @@ function startLanguageClient(context: vscode.ExtensionContext): void {
       { scheme: 'untitled', language: 'vhdl' },
     ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher(
-        '**/*.{vhd,vhdl,vho,vht}'
-      ),
+      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.{vhd,vhdl,vho,vht}'),
     },
+    outputChannel: output,
+    traceOutputChannel: trace,
+    revealOutputChannelOn: RevealOutputChannelOn.Never,
   };
 
   client = new LanguageClient(
@@ -178,8 +179,27 @@ function startLanguageClient(context: vscode.ExtensionContext): void {
     clientOptions
   );
 
-  client.start();
-  context.subscriptions.push(client);
+  client.setTrace(Trace.Verbose);
+
+  client.onDidChangeState((e) =>
+    output.appendLine(`[client] state changed: ${e.oldState} -> ${e.newState}`)
+  );
+
+  try {
+    const started = client.start() as any;
+
+    if (started?.then) {
+      started.then(
+        () => output.appendLine('[client] start() resolved'),
+        (e: any) => output.appendLine(`[client] start() rejected: ${String(e)}`)
+      );
+    } else {
+      output.appendLine('[client] start() returned a Disposable');
+      context.subscriptions.push(started);
+    }
+  } catch (e) {
+    output.appendLine(`[client] start() threw: ${String(e)}`);
+  }
 }
 
 function buildHeaderSnippet(authorName: string, courseName: string): vscode.SnippetString {
