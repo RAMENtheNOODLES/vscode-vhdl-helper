@@ -2,7 +2,7 @@
   "name": "vhdl-helper",
   "displayName": "VHDL Helper",
   "description": "VHDL snippets + a language server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "CookieJAR499",
   "repository": {
     "type": "git",
@@ -129,6 +129,22 @@
             "items": { "type": "string" },
             "default": ["**/*.vhd", "**/*.vhdl", "**/*.vho", "**/*.vht"],
             "description": "Glob patterns for VHDL source files included in the workspace."
+          },
+          "vhdl.workspace.includeGhdlStandardLibraries": {
+            "type": "boolean",
+            "default": true,
+            "description": "Index GHDL's bundled ieee/std source packages for imported-library hover, definition, and completion support."
+          },
+          "vhdl.workspace.indexing.enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Enable workspace-wide indexing for Go to Definition."
+          },
+          "vhdl.workspace.indexing.rescanIntervalMs": {
+            "type": "number",
+            "minimum": 0,
+            "default": 30000,
+            "description": "How often (ms) to re-scan workspace files for index updates. Set to 0 to disable periodic rescans."
           }
         }
       }
@@ -154,6 +170,6 @@
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1",
-    "vhdl-language-server": "^0.3.0"
+    "vhdl-language-server": "^0.3.1"
   }
 }

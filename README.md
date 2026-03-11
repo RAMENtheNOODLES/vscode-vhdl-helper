@@ -36,6 +36,16 @@ Once GHDL is installed, close and reopen VScode.
 
 - `vhdlHelper.authorName`: Default author name used in the VHDL header snippet.
 - `vhdlHelper.courseName`: Default course name used in the VHDL header snippet.
+- `vhdl.languageStandard`: VHDL language standard used by the language server. Supported values: `87`, `93`, `02`, `08`, `19`.
+- `vhdl.diagnostics.mode`: Diagnostic source to use. Supported values: `basic`, `ghdl`, `both`, `off`.
+- `vhdl.ghdl.path`: Absolute path to the `ghdl` executable. Leave empty to use the system `PATH`.
+- `vhdl.ghdl.args`: Extra arguments appended to each `ghdl -a` invocation.
+- `vhdl.ghdl.run`: When GHDL analysis runs. Supported values: `onSave`, `onType`.
+- `vhdl.ghdl.debounceMs`: Debounce delay in milliseconds when `vhdl.ghdl.run` is `onType`.
+- `vhdl.workspace.sourceGlobs`: Glob patterns used to discover VHDL source files for workspace indexing and navigation.
+- `vhdl.workspace.includeGhdlStandardLibraries`: Whether to index GHDL's bundled `ieee` and `std` libraries for hover, definition, and completion support.
+- `vhdl.workspace.indexing.enabled`: Whether workspace-wide indexing is enabled for navigation features.
+- `vhdl.workspace.indexing.rescanIntervalMs`: How often the workspace indexer re-scans files. Set to `0` to disable periodic rescans.
 
 ## AI Authorship Notice
 
