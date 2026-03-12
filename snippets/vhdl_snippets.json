@@ -41,7 +41,7 @@
     "prefix": "arch,architecture",
     "description": "Architecture template",
     "body": [
-      "ARCHITECTURE ${1|rtl,behavorial,struct|} OF $TM_FILENAME_BASE IS",
+      "ARCHITECTURE ${1|rtl,behavioral,struct|} OF $TM_FILENAME_BASE IS",
       "-- COMPONENTS",
       "$2\n",
       "-- SIGNALS",
