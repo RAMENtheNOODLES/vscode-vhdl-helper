@@ -2,7 +2,7 @@
   "name": "vhdl-helper",
   "displayName": "VHDL Helper",
   "description": "VHDL snippets + a language server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "CookieJAR499",
   "repository": {
     "type": "git",
@@ -170,6 +170,6 @@
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1",
-    "vhdl-language-server": "^0.3.2"
+    "vhdl-language-server": "^0.3.3"
   }
 }
