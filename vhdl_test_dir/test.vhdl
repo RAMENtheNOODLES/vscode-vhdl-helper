@@ -24,12 +24,25 @@ PORT (
 END CLC;
 
 ARCHITECTURE rtl OF CLC IS
--- COMPONENTS
 
+SUBTYPE address_t IS STD_LOGIC_VECTOR(15 DOWNTO 0);
+SUBTYPE register_t IS STD_LOGIC_VECTOR(7 DOWNTO 0);
+TYPE CU_States_t IS (FETCH, DECODE, EXECUTE, INTERRUPT, ERR);
+-- COMPONENTS
+FUNCTION GET_REG (reg : register_t) RETURN address_t IS VARIABLE SelectOut : address_t;
+BEGIN
+    SelectOut := (OTHERS => '1');
+
+    RETURN SelectOut;
+END FUNCTION;
 
 -- SIGNALS
 SIGNAL p    : STD_LOGIC_VECTOR(3 DOWNTO 0);
 SIGNAL g    : STD_LOGIC_VECTOR(3 DOWNTO 0);
+SIGNAL t    : address_t;
+SIGNAL r    : register_t;
+
+SIGNAL test_state : CU_States_t;
 -- SIGNAL cout : STD_LOGIC_VECTOR(3 DOWNTO 0);
 
 BEGIN
@@ -48,5 +61,13 @@ o_cout(1) <= g(0) OR (p(0) AND o_cout(0));
 o_cout(2) <= g(1) OR (p(1) AND o_cout(1));
 o_cout(3) <= g(2) OR (p(2) AND o_cout(2));
 o_cout(4) <= g(3) OR (p(3) AND o_cout(3));
+
+t <= GET_REG(r);
+
+test : PROCESS
+BEGIN
+    
+    WAIT;
+END PROCESS;
 
 END rtl;

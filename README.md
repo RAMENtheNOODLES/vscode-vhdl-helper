@@ -25,6 +25,21 @@ For Windows users, GHDL can be installed via WINGET (`winget install ghdl`) or v
 
 Once GHDL is installed, close and reopen VScode.
 
+### Language Server features
+This extension bundles and integrates the VHDL Language Server which provides the following features:
+
+- **Context-aware completion**: VHDL-2008 keywords; locals in scope (signals, variables, constants, callable parameters); user-defined types/subtypes and callables; imported package members via `use` clauses; selected-name completion (e.g. `pkg.` and `lib.pkg.`); enum literal completion inferred from typed objects; and built-in based-literal snippets (`x""`, `b""`, `o""`).
+- **Semantic highlighting**: semantic tokens for user-defined types/subtypes and called user functions.
+- **Hover**: keyword help and declaration signatures for entities, components, ports, generics, signals, variables, constants, types/subtypes, package members, and callables.
+- **Diagnostics**: optional GHDL-powered analysis or a lightweight built-in checker (configurable via `vhdl.diagnostics.mode`).
+- **Go to Definition / Navigation**: workspace-wide Ctrl+Click / F12 navigation for instantiations, components, entities, port-map formals, package members, and general identifiers with workspace indexing and sensible tie-breakers.
+- **Package/use-clause-aware semantics**: understands `library`/`use` clauses, explicit and `.all` imports, resolves package members from declarations and bodies, and detects ambiguous imports.
+- **Workspace indexing**: background scanning of VHDL source files to build an in-memory index used for definition resolution and completion. Open document content takes precedence over on-disk files.
+- **Windows path handling**: correctly parses GHDL output with Windows drive-letter paths.
+- **Incremental document sync**: efficient tracking of text changes for responsive language features.
+
+Configure these behaviors via the `vhdl.*` settings described below.
+
 ## Commands
 
 - **VHDL: Clipboard COMPONENT → DUT PORT MAP** (`vhdlHelper.clipboardComponentToDut`)
