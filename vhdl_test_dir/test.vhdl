@@ -68,7 +68,6 @@ t <= GET_REG(r);
 test : PROCESS
 BEGIN
     
-    WAIT;
 END PROCESS;
 
 END rtl;
