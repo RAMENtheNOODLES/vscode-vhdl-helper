@@ -37,6 +37,7 @@ type VhdlFunctionSignature = {
   label: string;
   packageName?: string;
   sourceUri?: string;
+  declarationOffset?: number;
 };
 
 type FunctionCallContext = {
@@ -45,7 +46,27 @@ type FunctionCallContext = {
   activeParameter: number;
 };
 
+type VhdlTypedSymbolKind = 'signal' | 'variable' | 'constant' | 'port' | 'generic';
+
+type VhdlTypedSymbol = {
+  name: string;
+  typeText: string;
+  kind: VhdlTypedSymbolKind;
+  sourceUri?: string;
+  packageName?: string;
+  declarationOffset?: number;
+};
+
+type OriginCandidate = {
+  kind: string;
+  name: string;
+  packageName?: string;
+  sourceUri: string;
+  declarationOffset?: number;
+};
+
 const workspaceFunctionCache = new Map<string, VhdlFunctionSignature[]>();
+const workspaceSymbolCache = new Map<string, VhdlTypedSymbol[]>();
 const vhdlFileGlob = '**/*.{vhd,vhdl,vho,vht}';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -58,6 +79,7 @@ export function activate(context: vscode.ExtensionContext) {
   void initializeWorkspaceFunctionIndex();
   for (const doc of vscode.workspace.textDocuments) {
     updateWorkspaceFunctionCacheForDocument(doc);
+    updateWorkspaceSymbolCacheForDocument(doc);
   }
 
   // Existing command: Clipboard COMPONENT -> DUT PORT MAP
@@ -128,6 +150,34 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const openOriginDisposable = vscode.commands.registerCommand(
+    'vhdlHelper.openOrigin',
+    async (arg?: { sourceUri?: string; declarationOffset?: number }) => {
+      const sourceUri = arg?.sourceUri;
+      if (!sourceUri) {
+        return;
+      }
+
+      try {
+        const uri = vscode.Uri.parse(sourceUri);
+        const document = await vscode.workspace.openTextDocument(uri);
+
+        if (typeof arg?.declarationOffset === 'number' && arg.declarationOffset >= 0) {
+          const position = document.positionAt(arg.declarationOffset);
+          await vscode.window.showTextDocument(document, {
+            preview: false,
+            selection: new vscode.Range(position, position),
+          });
+          return;
+        }
+
+        await vscode.window.showTextDocument(document, { preview: false });
+      } catch (error) {
+        output.appendLine(`[vhdl-helper] Failed to open origin: ${String(error)}`);
+      }
+    }
+  );
+
   const headerCompletionProvider = vscode.languages.registerCompletionItemProvider(
     'vhdl',
     {
@@ -142,7 +192,7 @@ export function activate(context: vscode.ExtensionContext) {
         item.detail = 'VHDL Helper: Header snippet';
         item.insertText = buildHeaderSnippet(authorName, courseName);
         item.preselect = true;
-        item.sortText = '0';
+        item.sortText = 'zzzz_header';
         const range = document.getWordRangeAtPosition(position, /\w+/);
         if (range) {
           item.range = range;
@@ -150,6 +200,87 @@ export function activate(context: vscode.ExtensionContext) {
         return [item];
       },
     }
+  );
+
+  const parameterAwareCompletionProvider = vscode.languages.registerCompletionItemProvider(
+    'vhdl',
+    {
+      provideCompletionItems(document, position) {
+        const callContext = getFunctionCallContext(document, position);
+        if (!callContext) {
+          return null;
+        }
+
+        const matching = resolveMatchingFunctionSignatures(document, callContext);
+        if (matching.length === 0) {
+          return null;
+        }
+
+        const expectedTypes = getExpectedParameterTypes(matching, callContext.activeParameter);
+        if (expectedTypes.size === 0) {
+          return null;
+        }
+
+        const documentUri = document.uri.toString();
+        const documentText = document.getText();
+        const cursorOffset = document.offsetAt(position);
+        const usedPackages = collectUsedPackagesBeforeOffset(documentText, cursorOffset);
+        const cursorScopeStack = getScopeStackAtOffset(documentText, cursorOffset);
+        const localSymbols = parseVhdlTypedSymbols(document.getText()).map((s) => ({
+          ...s,
+          sourceUri: documentUri,
+        }));
+        const workspaceSymbols = getWorkspaceSymbolsExcluding(documentUri);
+        const allSymbols = dedupeTypedSymbols([...localSymbols, ...workspaceSymbols]);
+
+        const ranked = allSymbols
+          .map((symbol) => ({
+            symbol,
+            score: scoreSymbolAgainstExpectedTypes(
+              symbol,
+              expectedTypes,
+              {
+                documentUri,
+                cursorOffset,
+                cursorScopeStack,
+                usedPackages,
+                documentText,
+              }
+            ),
+          }))
+          .filter((entry) => entry.score < 1000)
+          .sort((a, b) => {
+            if (a.score !== b.score) return a.score - b.score;
+            return a.symbol.name.localeCompare(b.symbol.name);
+          })
+          .slice(0, 200);
+
+        if (ranked.length === 0) {
+          return null;
+        }
+
+        const bestScore = ranked[0].score;
+
+        return ranked.map((entry, index): vscode.CompletionItem => {
+          const item = new vscode.CompletionItem(
+            entry.symbol.name,
+            completionKindForSymbol(entry.symbol.kind)
+          );
+          item.detail = `${entry.symbol.kind} : ${entry.symbol.typeText}`;
+          const band = completionPriorityBand(entry.score);
+          item.sortText = `!${band}_${String(entry.score).padStart(4, '0')}_${entry.symbol.name.toLowerCase()}`;
+          item.filterText = entry.symbol.name;
+          item.insertText = entry.symbol.name;
+          if (index === 0 || entry.score === bestScore) {
+            item.preselect = index === 0;
+          }
+          return item;
+        });
+      },
+    },
+    '(',
+    ',',
+    ' '
   );
 
   const functionSignatureProvider = vscode.languages.registerSignatureHelpProvider(
@@ -173,18 +304,7 @@ export function activate(context: vscode.ExtensionContext) {
           return null;
         }
 
-        let matching = signatures.filter(
-          s => s.name.toLowerCase() === callContext.functionName.toLowerCase()
-        );
-
-        if (callContext.packageQualifier) {
-          const qualifiedMatches = matching.filter(
-            s => (s.packageName ?? '').toLowerCase() === callContext.packageQualifier?.toLowerCase()
-          );
-          if (qualifiedMatches.length > 0) {
-            matching = qualifiedMatches;
-          }
-        }
+        const matching = resolveMatchingFunctionSignatures(document, callContext, signatures);
 
         if (matching.length === 0) {
           return null;
@@ -213,15 +333,63 @@ export function activate(context: vscode.ExtensionContext) {
     ','
   );
 
+
+  const originHoverProvider = vscode.languages.registerHoverProvider(
+    'vhdl',
+    {
+      provideHover(document, position) {
+        const range = document.getWordRangeAtPosition(position, /[a-zA-Z]\w*/);
+        if (!range) {
+          return null;
+        }
+
+        const symbolName = document.getText(range);
+        if (!symbolName) {
+          return null;
+        }
+
+        if (isSymbolFromCurrentFile(document, symbolName)) {
+          return null;
+        }
+
+        const context = getHoverContext(document, range.start);
+        const candidates = resolveExternalOriginCandidates(document, symbolName, context);
+        if (candidates.length === 0) {
+          return null;
+        }
+
+        const markdown = new vscode.MarkdownString();
+        markdown.isTrusted = true;
+        const shown = candidates.slice(0, 4);
+
+        for (const candidate of shown) {
+          const sourceLabel = formatOriginSourceLabel(candidate.sourceUri, document.uri);
+          const packagePart = candidate.packageName ? `, package ${candidate.packageName}` : '';
+          const openLink = buildOpenOriginCommandLink(candidate);
+          markdown.appendMarkdown(`From ${candidate.kind}${packagePart}: ${sourceLabel} ([Open](${openLink}))`);
+          markdown.appendMarkdown('  \n');
+        }
+
+        if (candidates.length > shown.length) {
+          markdown.appendMarkdown(`(+${candidates.length - shown.length} more matches)`);
+        }
+
+        return new vscode.Hover(markdown, range);
+      },
+    }
+  );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       updateWorkspaceFunctionCacheForDocument(document);
+      updateWorkspaceSymbolCacheForDocument(document);
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       updateWorkspaceFunctionCacheForDocument(event.document);
+      updateWorkspaceSymbolCacheForDocument(event.document);
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       updateWorkspaceFunctionCacheForDocument(document);
+      updateWorkspaceSymbolCacheForDocument(document);
     }),
     vscode.workspace.onDidCreateFiles((event) => {
       for (const file of event.files) {
@@ -231,18 +399,23 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidDeleteFiles((event) => {
       for (const file of event.files) {
         workspaceFunctionCache.delete(file.toString());
+        workspaceSymbolCache.delete(file.toString());
       }
     }),
     vscode.workspace.onDidRenameFiles((event) => {
       for (const renamed of event.files) {
         workspaceFunctionCache.delete(renamed.oldUri.toString());
+        workspaceSymbolCache.delete(renamed.oldUri.toString());
         void indexVhdlFile(renamed.newUri);
       }
     }),
     toDutDisposable,
     toSignalsDisposable,
+    openOriginDisposable,
     headerCompletionProvider,
-    functionSignatureProvider
+    parameterAwareCompletionProvider,
+    functionSignatureProvider,
+    originHoverProvider
   );
 }
 
@@ -571,6 +744,7 @@ async function indexVhdlFile(fileUri: vscode.Uri): Promise<void> {
   try {
     const document = await vscode.workspace.openTextDocument(fileUri);
     updateWorkspaceFunctionCacheForDocument(document);
+    updateWorkspaceSymbolCacheForDocument(document);
   } catch (error) {
     output.appendLine(`[vhdl-helper] Failed to index ${fileUri.fsPath}: ${String(error)}`);
   }
@@ -587,6 +761,19 @@ function updateWorkspaceFunctionCacheForDocument(document: vscode.TextDocument):
   }));
 
   workspaceFunctionCache.set(document.uri.toString(), signatures);
+}
+
+function updateWorkspaceSymbolCacheForDocument(document: vscode.TextDocument): void {
+  if (!isVhdlDocument(document)) {
+    return;
+  }
+
+  const symbols = parseVhdlTypedSymbols(document.getText()).map((symbol) => ({
+    ...symbol,
+    sourceUri: document.uri.toString(),
+  }));
+
+  workspaceSymbolCache.set(document.uri.toString(), symbols);
 }
 
 function isVhdlDocument(document: vscode.TextDocument): boolean {
@@ -612,6 +799,17 @@ function getWorkspaceSignaturesExcluding(documentUri: string): VhdlFunctionSigna
   return out;
 }
 
+function getWorkspaceSymbolsExcluding(documentUri: string): VhdlTypedSymbol[] {
+  const out: VhdlTypedSymbol[] = [];
+  for (const [uri, symbols] of workspaceSymbolCache.entries()) {
+    if (uri === documentUri) {
+      continue;
+    }
+    out.push(...symbols);
+  }
+  return out;
+}
+
 function dedupeSignatures(signatures: VhdlFunctionSignature[]): VhdlFunctionSignature[] {
   const out: VhdlFunctionSignature[] = [];
   const seen = new Set<string>();
@@ -633,6 +831,492 @@ function dedupeSignatures(signatures: VhdlFunctionSignature[]): VhdlFunctionSign
   }
 
   return out;
+}
+
+function dedupeTypedSymbols(symbols: VhdlTypedSymbol[]): VhdlTypedSymbol[] {
+  const out: VhdlTypedSymbol[] = [];
+  const seen = new Set<string>();
+
+  for (const symbol of symbols) {
+    const key = [
+      symbol.sourceUri ?? '',
+      symbol.name.toLowerCase(),
+      normalizeType(symbol.typeText),
+      symbol.kind,
+    ].join('|');
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    out.push(symbol);
+  }
+
+  return out;
+}
+
+function resolveMatchingFunctionSignatures(
+  document: vscode.TextDocument,
+  callContext: FunctionCallContext,
+  preloadedSignatures?: VhdlFunctionSignature[]
+): VhdlFunctionSignature[] {
+  const signatures = preloadedSignatures ?? (() => {
+    const documentUri = document.uri.toString();
+    const localSignatures = parseVhdlFunctions(document.getText()).map(sig => ({
+      ...sig,
+      sourceUri: documentUri,
+    }));
+    const cachedWorkspaceSignatures = getWorkspaceSignaturesExcluding(documentUri);
+    return dedupeSignatures([...localSignatures, ...cachedWorkspaceSignatures]);
+  })();
+
+  let matching = signatures.filter(
+    s => s.name.toLowerCase() === callContext.functionName.toLowerCase()
+  );
+
+  if (callContext.packageQualifier) {
+    const qualifiedMatches = matching.filter(
+      s => (s.packageName ?? '').toLowerCase() === callContext.packageQualifier?.toLowerCase()
+    );
+    if (qualifiedMatches.length > 0) {
+      matching = qualifiedMatches;
+    }
+  }
+
+  return matching;
+}
+
+function isSymbolFromCurrentFile(document: vscode.TextDocument, symbolName: string): boolean {
+  const lowered = symbolName.toLowerCase();
+  const localFunctions = parseVhdlFunctions(document.getText());
+  if (localFunctions.some((fn) => fn.name.toLowerCase() === lowered)) {
+    return true;
+  }
+
+  const localSymbols = parseVhdlTypedSymbols(document.getText());
+  return localSymbols.some((symbol) => symbol.name.toLowerCase() === lowered);
+}
+
+function getHoverContext(
+  document: vscode.TextDocument,
+  wordStart: vscode.Position
+): { packageQualifier?: string; isFunctionCall: boolean } {
+  const lineText = document.lineAt(wordStart.line).text;
+  const currentOffset = document.offsetAt(wordStart);
+  const lineStartOffset = document.offsetAt(new vscode.Position(wordStart.line, 0));
+  const lineRelativeStart = currentOffset - lineStartOffset;
+
+  let packageQualifier: string | undefined;
+  let i = lineRelativeStart - 1;
+  while (i >= 0 && /\s/.test(lineText[i])) {
+    i -= 1;
+  }
+  if (i >= 0 && lineText[i] === '.') {
+    i -= 1;
+    while (i >= 0 && /\s/.test(lineText[i])) {
+      i -= 1;
+    }
+    const end = i;
+    while (i >= 0 && /[a-zA-Z0-9_]/.test(lineText[i])) {
+      i -= 1;
+    }
+    const start = i + 1;
+    if (start <= end) {
+      const candidate = lineText.slice(start, end + 1);
+      if (/^[a-zA-Z]\w*$/.test(candidate)) {
+        packageQualifier = candidate;
+      }
+    }
+  }
+
+  const afterText = lineText.slice(lineRelativeStart);
+  const isFunctionCall = /^\s*[a-zA-Z]\w*\s*\(/.test(afterText);
+
+  return {
+    packageQualifier,
+    isFunctionCall,
+  };
+}
+
+function resolveExternalOriginCandidates(
+  document: vscode.TextDocument,
+  symbolName: string,
+  hoverContext: { packageQualifier?: string; isFunctionCall: boolean }
+): OriginCandidate[] {
+  const nameLower = symbolName.toLowerCase();
+  const documentUri = document.uri.toString();
+  const candidates: OriginCandidate[] = [];
+
+  for (const fn of getWorkspaceSignaturesExcluding(documentUri)) {
+    if (!fn.sourceUri) {
+      continue;
+    }
+    if (fn.name.toLowerCase() !== nameLower) {
+      continue;
+    }
+    if (hoverContext.packageQualifier && (fn.packageName ?? '').toLowerCase() !== hoverContext.packageQualifier.toLowerCase()) {
+      continue;
+    }
+    candidates.push({
+      kind: 'function',
+      name: fn.name,
+      packageName: fn.packageName,
+      sourceUri: fn.sourceUri,
+      declarationOffset: fn.declarationOffset,
+    });
+  }
+
+  if (!hoverContext.isFunctionCall || candidates.length === 0) {
+    for (const symbol of getWorkspaceSymbolsExcluding(documentUri)) {
+      if (!symbol.sourceUri) {
+        continue;
+      }
+      if (symbol.name.toLowerCase() !== nameLower) {
+        continue;
+      }
+      if (hoverContext.packageQualifier && (symbol.packageName ?? '').toLowerCase() !== hoverContext.packageQualifier.toLowerCase()) {
+        continue;
+      }
+      candidates.push({
+        kind: symbol.kind,
+        name: symbol.name,
+        packageName: symbol.packageName,
+        sourceUri: symbol.sourceUri,
+        declarationOffset: symbol.declarationOffset,
+      });
+    }
+  }
+
+  return dedupeOriginCandidates(candidates);
+}
+
+function dedupeOriginCandidates(candidates: OriginCandidate[]): OriginCandidate[] {
+  const out: OriginCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of candidates) {
+    const key = [
+      candidate.kind,
+      candidate.name.toLowerCase(),
+      candidate.packageName ?? '',
+      candidate.sourceUri,
+    ].join('|');
+
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push(candidate);
+  }
+
+  return out;
+}
+
+function formatOriginSourceLabel(sourceUri: string, currentUri: vscode.Uri): string {
+  const source = vscode.Uri.parse(sourceUri);
+  const relative = vscode.workspace.asRelativePath(source, false);
+  const currentRelative = vscode.workspace.asRelativePath(currentUri, false);
+  if (relative && relative !== currentRelative) {
+    return relative;
+  }
+  return source.fsPath;
+}
+
+function buildOpenOriginCommandLink(candidate: OriginCandidate): string {
+  const payload = encodeURIComponent(JSON.stringify([{
+    sourceUri: candidate.sourceUri,
+    declarationOffset: candidate.declarationOffset,
+  }]));
+  return `command:vhdlHelper.openOrigin?${payload}`;
+}
+
+function getExpectedParameterTypes(
+  signatures: VhdlFunctionSignature[],
+  activeParameterIndex: number
+): Set<string> {
+  const expected = new Set<string>();
+
+  for (const signature of signatures) {
+    if (signature.parameters.length === 0) {
+      continue;
+    }
+
+    const safeIndex = Math.min(activeParameterIndex, signature.parameters.length - 1);
+    const parameter = signature.parameters[safeIndex];
+    const paramType = extractParameterTypeFromLabel(parameter.label);
+    if (paramType) {
+      expected.add(normalizeType(paramType));
+    }
+  }
+
+  return expected;
+}
+
+function extractParameterTypeFromLabel(label: string): string {
+  const m = /^\s*\w+\s*:\s*(?:(?:in|out|inout|buffer)\s+)?(.+)$/i.exec(label);
+  return (m?.[1] ?? '').trim();
+}
+
+function parseVhdlTypedSymbols(text: string): VhdlTypedSymbol[] {
+  const packageBlocks = findPackageBlocks(text);
+  const scopedSymbols = packageBlocks.flatMap((block) =>
+    parseVhdlTypedSymbolsInSegment(text, block.contentStartOffset, block.contentEndOffset, block.packageName)
+  );
+
+  const globalSymbols = parseVhdlTypedSymbolsInSegment(text, 0, text.length)
+    .filter((symbol) => !packageBlocks.some((block) =>
+      (symbol.declarationOffset ?? -1) >= block.contentStartOffset &&
+      (symbol.declarationOffset ?? -1) < block.contentEndOffset
+    ));
+
+  return [...globalSymbols, ...scopedSymbols];
+}
+
+function parseVhdlTypedSymbolsInSegment(
+  text: string,
+  segmentStartOffset: number,
+  segmentEndOffset: number,
+  packageName?: string
+): VhdlTypedSymbol[] {
+  const symbols: VhdlTypedSymbol[] = [];
+  const segment = text.slice(segmentStartOffset, segmentEndOffset);
+  const sanitizedSegment = segment.replace(/--.*$/gm, '');
+
+  const declarationRegex = /\b(signal|variable|constant)\s+([\w\s,]+?)\s*:\s*([\s\S]*?);/gi;
+  let declMatch: RegExpExecArray | null;
+  while ((declMatch = declarationRegex.exec(sanitizedSegment)) !== null) {
+    const kind = declMatch[1].toLowerCase() as VhdlTypedSymbolKind;
+    const names = declMatch[2].split(',').map((s) => s.trim()).filter(Boolean);
+    const typeText = declMatch[3].replace(/\s*:=\s*[\s\S]*$/i, '').trim();
+    const declarationOffset = segmentStartOffset + declMatch.index;
+    for (const name of names) {
+      symbols.push({ name, typeText, kind, packageName, declarationOffset });
+    }
+  }
+
+  const genericRegex = /\bgeneric\s*\(([\s\S]*?)\)\s*;/gi;
+  let genericMatch: RegExpExecArray | null;
+  while ((genericMatch = genericRegex.exec(sanitizedSegment)) !== null) {
+    symbols.push(
+      ...parseInterfaceBlockSymbols(genericMatch[1], 'generic', packageName, segmentStartOffset + genericMatch.index)
+    );
+  }
+
+  const portRegex = /\bport\s*\(([\s\S]*?)\)\s*;/gi;
+  let portMatch: RegExpExecArray | null;
+  while ((portMatch = portRegex.exec(sanitizedSegment)) !== null) {
+    symbols.push(
+      ...parseInterfaceBlockSymbols(portMatch[1], 'port', packageName, segmentStartOffset + portMatch.index)
+    );
+  }
+
+  return symbols;
+}
+
+function parseInterfaceBlockSymbols(
+  block: string,
+  kind: 'port' | 'generic',
+  packageName?: string,
+  declarationOffset?: number
+): VhdlTypedSymbol[] {
+  const symbols: VhdlTypedSymbol[] = [];
+  const statements = block
+    .split(';')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  for (const stmt of statements) {
+    const m = /^([\w\s,]+)\s*:\s*(?:(?:in|out|inout|buffer)\s+)?(.+)$/i.exec(stmt);
+    if (!m) {
+      continue;
+    }
+
+    const names = m[1].split(',').map((s) => s.trim()).filter(Boolean);
+    const typeText = m[2].replace(/\s*:=\s*[\s\S]*$/i, '').trim();
+
+    for (const name of names) {
+      symbols.push({ name, typeText, kind, packageName, declarationOffset });
+    }
+  }
+
+  return symbols;
+}
+
+function scoreSymbolAgainstExpectedTypes(
+  symbol: VhdlTypedSymbol,
+  expectedTypes: Set<string>,
+  context: {
+    documentUri: string;
+    cursorOffset: number;
+    cursorScopeStack: string[];
+    usedPackages: Set<string>;
+    documentText: string;
+  }
+): number {
+  const normalizedSymbol = normalizeType(symbol.typeText);
+  if (!normalizedSymbol) {
+    return 1000;
+  }
+
+  let best = 1000;
+  for (const expectedType of expectedTypes) {
+    if (normalizedSymbol === expectedType) {
+      best = Math.min(best, 0);
+      continue;
+    }
+
+    if (typeBase(normalizedSymbol) === typeBase(expectedType)) {
+      best = Math.min(best, 100);
+      continue;
+    }
+
+    if (isNumericType(normalizedSymbol) && isNumericType(expectedType)) {
+      best = Math.min(best, 200);
+      continue;
+    }
+
+    if (isStdLogicFamily(normalizedSymbol) && isStdLogicFamily(expectedType)) {
+      best = Math.min(best, 250);
+      continue;
+    }
+  }
+
+  if (best >= 1000) {
+    return best;
+  }
+
+  let score = best;
+
+  // Prefer local kinds for argument completion.
+  if (symbol.kind === 'variable') score -= 20;
+  if (symbol.kind === 'signal') score -= 15;
+  if (symbol.kind === 'constant') score -= 10;
+
+  if (symbol.sourceUri === context.documentUri) {
+    score -= 30;
+
+    if (typeof symbol.declarationOffset === 'number') {
+      if (symbol.declarationOffset <= context.cursorOffset) {
+        score -= 20;
+        const distance = context.cursorOffset - symbol.declarationOffset;
+        score += Math.min(100, Math.floor(distance / 250));
+      } else {
+        score += 90;
+      }
+
+      const symbolScopeStack = getScopeStackAtOffset(context.documentText, symbol.declarationOffset);
+      const sharedDepth = commonPrefixLength(context.cursorScopeStack, symbolScopeStack);
+      score -= Math.min(60, sharedDepth * 20);
+      score += Math.max(0, context.cursorScopeStack.length - sharedDepth) * 10;
+    }
+  } else {
+    score += 120;
+  }
+
+  if (symbol.packageName) {
+    if (context.usedPackages.has(symbol.packageName.toLowerCase())) {
+      score -= 25;
+    } else {
+      score += 80;
+    }
+  }
+
+  return Math.max(0, score);
+}
+
+function completionPriorityBand(score: number): string {
+  if (score <= 40) return '0000';
+  if (score <= 160) return '0001';
+  if (score <= 320) return '0002';
+  return '0003';
+}
+
+function collectUsedPackagesBeforeOffset(text: string, endOffset: number): Set<string> {
+  const used = new Set<string>();
+  const segment = text.slice(0, endOffset);
+  const useRegex = /\buse\s+([a-zA-Z][\w]*(?:\.[a-zA-Z][\w]*)+)\s*;/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = useRegex.exec(segment)) !== null) {
+    const pathParts = match[1].split('.').filter(Boolean);
+    if (pathParts.length >= 2) {
+      used.add(pathParts[pathParts.length - 2].toLowerCase());
+    }
+  }
+
+  return used;
+}
+
+function getScopeStackAtOffset(text: string, endOffset: number): string[] {
+  const stack: string[] = [];
+  const segment = text.slice(0, endOffset);
+  const tokenRegex = /\b(end\s+(?:process|function|procedure|block|architecture|entity|package)|process|function|procedure|block|architecture|entity|package)\b/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = tokenRegex.exec(segment)) !== null) {
+    const token = match[1].toLowerCase().replace(/\s+/g, ' ').trim();
+    if (token.startsWith('end ')) {
+      const kind = token.slice(4);
+      for (let i = stack.length - 1; i >= 0; i--) {
+        if (stack[i] === kind) {
+          stack.splice(i, 1);
+          break;
+        }
+      }
+      continue;
+    }
+
+    stack.push(token);
+  }
+
+  return stack;
+}
+
+function commonPrefixLength(a: string[], b: string[]): number {
+  const n = Math.min(a.length, b.length);
+  let i = 0;
+  while (i < n && a[i] === b[i]) {
+    i += 1;
+  }
+  return i;
+}
+
+function normalizeType(typeText: string): string {
+  return typeText.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function typeBase(typeText: string): string {
+  const normalized = normalizeType(typeText);
+  const parenIndex = normalized.indexOf('(');
+  return parenIndex >= 0 ? normalized.slice(0, parenIndex).trim() : normalized;
+}
+
+function isNumericType(typeText: string): boolean {
+  const base = typeBase(typeText);
+  return base === 'integer' || base === 'natural' || base === 'positive' || base === 'signed' || base === 'unsigned';
+}
+
+function isStdLogicFamily(typeText: string): boolean {
+  const base = typeBase(typeText);
+  return base === 'std_logic' || base === 'std_logic_vector' || base === 'std_ulogic' || base === 'std_ulogic_vector';
+}
+
+function completionKindForSymbol(kind: VhdlTypedSymbolKind): vscode.CompletionItemKind {
+  switch (kind) {
+    case 'constant':
+      return vscode.CompletionItemKind.Constant;
+    case 'variable':
+      return vscode.CompletionItemKind.Variable;
+    case 'signal':
+      return vscode.CompletionItemKind.Field;
+    case 'port':
+      return vscode.CompletionItemKind.Property;
+    case 'generic':
+      return vscode.CompletionItemKind.Value;
+    default:
+      return vscode.CompletionItemKind.Variable;
+  }
 }
 
 function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
@@ -780,6 +1464,7 @@ function parseVhdlFunctionsInSegment(
         parameters,
         label,
         packageName,
+        declarationOffset: absoluteStartOffset,
       },
     });
   }

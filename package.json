@@ -192,7 +192,7 @@
     "vsce": "^2.15.0"
   },
   "dependencies": {
-    "vhdl-language-server": "^0.3.4",
+    "vhdl-language-server": "^0.3.5",
     "vscode-languageclient": "^9.0.1"
   }
 }

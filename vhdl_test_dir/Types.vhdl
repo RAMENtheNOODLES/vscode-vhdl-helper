@@ -33,7 +33,7 @@ PACKAGE types IS
     FUNCTION EXEC_TO_VECTOR (instruction : Instruction_States_t) RETURN STD_LOGIC_VECTOR;
     FUNCTION INSTRUCTION_TO_VECTOR(instruction : CU_States_t) RETURN STD_LOGIC_VECTOR;
     FUNCTION VECTOR_TO_INSTRUCTION(instruction: STD_LOGIC_VECTOR(15 DOWNTO 0)) RETURN CU_States_t;
-END PACKAGE types;
+END PACKAGE types;  
 
 PACKAGE BODY types IS 
     FUNCTION GET_CURRENT_INSTRUCTION (instruction : opcode_t; sub_instruction : sub_instr_t := "000"; sub_sub_instruction : opcode_t := (OTHERS => '0')) RETURN Instruction_States_t IS VARIABLE InstructionState : Instruction_States_t;
