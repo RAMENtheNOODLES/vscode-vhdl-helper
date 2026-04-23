@@ -14,6 +14,10 @@
 LIBRARY ieee;
 USE ieee.std_logic_1164.all;
 
+LIBRARY work;
+
+USE work.types.all;
+
 ENTITY CLC IS
 PORT (
     i_a		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
@@ -27,10 +31,11 @@ ARCHITECTURE rtl OF CLC IS
 
 SUBTYPE address_t IS STD_LOGIC_VECTOR(15 DOWNTO 0);
 SUBTYPE register_t IS STD_LOGIC_VECTOR(7 DOWNTO 0);
+
 TYPE CU_States_t IS (FETCH, DECODE, EXECUTE, INTERRUPT, ERR);
 
 -- COMPONENTS
-FUNCTION GET_REG (reg : register_t) RETURN address_t IS VARIABLE SelectOut : address_t;
+FUNCTION GET_REG (reg : register_t; test : opcode_t) RETURN address_t IS VARIABLE SelectOut : address_t;
 BEGIN
     SelectOut := (OTHERS => '1');
 
@@ -44,7 +49,13 @@ SIGNAL t    : address_t;
 SIGNAL r    : register_t;
 
 SIGNAL test_state : CU_States_t;
+
+SIGNAL tet : opcode_t := (OTHERS => '0');
+
+SIGNAL tet1 : sub_instr_t := (OTHERS => '0');
 -- SIGNAL cout : STD_LOGIC_VECTOR(3 DOWNTO 0);
+
+-- FUNCTIONS
 
 BEGIN
 p(0) <= i_a(0) XOR i_b(0);
@@ -67,7 +78,7 @@ t <= GET_REG(r);
 
 test : PROCESS
 BEGIN
-    
+    GET_CURRENT_INSTRUCTION(tet);
 END PROCESS;
 
 END rtl;
