@@ -27,7 +27,19 @@ ARCHITECTURE rtl OF CLC IS
 
 SUBTYPE address_t IS STD_LOGIC_VECTOR(15 DOWNTO 0);
 SUBTYPE register_t IS STD_LOGIC_VECTOR(7 DOWNTO 0);
+
+SUBTYPE opcode_t IS STD_LOGIC_VECTOR(6 DOWNTO 0);
+SUBTYPE sub_instr_t IS STD_LOGIC_VECTOR(2 DOWNTO 0);
+
 TYPE CU_States_t IS (FETCH, DECODE, EXECUTE, INTERRUPT, ERR);
+
+TYPE Instruction_States_t IS (NOP, LUI, AUIPC, JAL, JALR, BEQ, BNE,
+    BLT, BGE, BLTU, BGEU, LB, LH, LW, 
+    LBU, LHU, SB, SH, SW, ADDI, SLTI, SLTIU,
+    XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADD, SUB, 
+    \SLL\, SLT, SLTU, \XOR\, \SRL\, \SRA\, \OR\,
+    \AND\, FENCE, PAUSE, ECALL, BREAK
+);
 
 -- COMPONENTS
 FUNCTION GET_REG (reg : register_t) RETURN address_t IS VARIABLE SelectOut : address_t;
@@ -45,6 +57,14 @@ SIGNAL r    : register_t;
 
 SIGNAL test_state : CU_States_t;
 -- SIGNAL cout : STD_LOGIC_VECTOR(3 DOWNTO 0);
+
+-- FUNCTIONS
+
+FUNCTION GET_CURRENT_INSTRUCTION (instruction : opcode_t; sub_instruction : sub_instr_t := "000"; sub_sub_instruction : opcode_t := (OTHERS => '0')) RETURN Instruction_States_t IS VARIABLE InstructionState : Instruction_States_t;
+BEGIN
+    -- Function Logic
+    RETURN InstructionState;
+END FUNCTION;
 
 BEGIN
 p(0) <= i_a(0) XOR i_b(0);

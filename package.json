@@ -2,7 +2,7 @@
   "name": "vhdl-helper",
   "displayName": "VHDL Helper",
   "description": "VHDL snippets + a language server",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publisher": "CookieJAR499",
   "repository": {
     "type": "git",
@@ -92,13 +92,24 @@
         "properties": {
           "vhdl.languageStandard": {
             "type": "string",
-            "enum": ["87", "93", "02", "08", "19"],
+            "enum": [
+              "87",
+              "93",
+              "02",
+              "08",
+              "19"
+            ],
             "default": "08",
             "description": "VHDL language standard to use."
           },
           "vhdl.diagnostics.mode": {
             "type": "string",
-            "enum": ["basic", "ghdl", "both", "off"],
+            "enum": [
+              "basic",
+              "ghdl",
+              "both",
+              "off"
+            ],
             "default": "both",
             "description": "Diagnostics mode: basic (syntax only), ghdl (GHDL-based), both, or off."
           },
@@ -109,13 +120,18 @@
           },
           "vhdl.ghdl.args": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "default": [],
             "description": "Extra command-line arguments passed to GHDL."
           },
           "vhdl.ghdl.run": {
             "type": "string",
-            "enum": ["onSave", "onType"],
+            "enum": [
+              "onSave",
+              "onType"
+            ],
             "default": "onSave",
             "description": "When to run GHDL: on save or on type."
           },
@@ -126,8 +142,15 @@
           },
           "vhdl.workspace.sourceGlobs": {
             "type": "array",
-            "items": { "type": "string" },
-            "default": ["**/*.vhd", "**/*.vhdl", "**/*.vho", "**/*.vht"],
+            "items": {
+              "type": "string"
+            },
+            "default": [
+              "**/*.vhd",
+              "**/*.vhdl",
+              "**/*.vho",
+              "**/*.vht"
+            ],
             "description": "Glob patterns for VHDL source files included in the workspace."
           },
           "vhdl.workspace.includeGhdlStandardLibraries": {
@@ -169,7 +192,7 @@
     "vsce": "^2.15.0"
   },
   "dependencies": {
-    "vscode-languageclient": "^9.0.1",
-    "vhdl-language-server": "^0.3.4"
+    "vhdl-language-server": "^0.3.4",
+    "vscode-languageclient": "^9.0.1"
   }
 }

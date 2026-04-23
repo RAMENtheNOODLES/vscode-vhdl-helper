@@ -26,6 +26,17 @@ function stateName(s: State): string {
   }
 }
 
+type VhdlFunctionParameter = {
+  label: string;
+};
+
+type VhdlFunctionSignature = {
+  name: string;
+  returnType: string;
+  parameters: VhdlFunctionParameter[];
+  label: string;
+};
+
 export function activate(context: vscode.ExtensionContext) {
   // --- LSP client ---
   if (!client) {
@@ -125,10 +136,53 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const functionSignatureProvider = vscode.languages.registerSignatureHelpProvider(
+    'vhdl',
+    {
+      provideSignatureHelp(document, position) {
+        const signatures = parseVhdlFunctions(document.getText());
+        if (signatures.length === 0) {
+          return null;
+        }
+
+        const callContext = getFunctionCallContext(document, position);
+        if (!callContext) {
+          return null;
+        }
+
+        const matching = signatures.filter(
+          s => s.name.toLowerCase() === callContext.functionName.toLowerCase()
+        );
+
+        if (matching.length === 0) {
+          return null;
+        }
+
+        const help = new vscode.SignatureHelp();
+        help.signatures = matching.map((fn): vscode.SignatureInformation => {
+          const info = new vscode.SignatureInformation(fn.label);
+          info.parameters = fn.parameters.map((p) => new vscode.ParameterInformation(p.label));
+          return info;
+        });
+
+        help.activeSignature = 0;
+        const activeSignature = matching[0];
+        help.activeParameter = Math.min(
+          callContext.activeParameter,
+          Math.max(activeSignature.parameters.length - 1, 0)
+        );
+        return help;
+      },
+    },
+    '(',
+    ','
+  );
+
   context.subscriptions.push(
     toDutDisposable,
     toSignalsDisposable,
-    headerCompletionProvider
+    headerCompletionProvider,
+    functionSignatureProvider
   );
 }
 
@@ -437,4 +491,255 @@ function transformComponentToSignals(
   }
 
   return resultLines.join('\n');
+}
+
+function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
+  const out: VhdlFunctionSignature[] = [];
+  const functionKeyword = /\bfunction\s+(\w+)\b/gi;
+  let match: RegExpExecArray | null;
+
+  while ((match = functionKeyword.exec(text)) !== null) {
+    const name = match[1];
+    let i = functionKeyword.lastIndex;
+
+    while (i < text.length && /\s/.test(text[i])) {
+      i += 1;
+    }
+
+    let rawParams = '';
+    if (text[i] === '(') {
+      const paramStart = i + 1;
+      let depth = 1;
+      i += 1;
+
+      while (i < text.length && depth > 0) {
+        if (text[i] === '(') depth += 1;
+        else if (text[i] === ')') depth -= 1;
+        i += 1;
+      }
+
+      if (depth !== 0) {
+        continue;
+      }
+
+      rawParams = text.slice(paramStart, i - 1);
+
+      while (i < text.length && /\s/.test(text[i])) {
+        i += 1;
+      }
+    }
+
+    const returnWord = text.slice(i, i + 6).toLowerCase();
+    if (returnWord !== 'return') {
+      continue;
+    }
+    i += 6;
+
+    while (i < text.length && /\s/.test(text[i])) {
+      i += 1;
+    }
+
+    const returnStart = i;
+    let depth = 0;
+    let returnEnd = -1;
+
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === '(') {
+        depth += 1;
+        i += 1;
+        continue;
+      }
+      if (ch === ')' && depth > 0) {
+        depth -= 1;
+        i += 1;
+        continue;
+      }
+      if (depth === 0 && ch === ';') {
+        returnEnd = i;
+        break;
+      }
+      if (depth === 0 && isWordAt(text, i, 'is')) {
+        returnEnd = i;
+        break;
+      }
+      i += 1;
+    }
+
+    if (returnEnd === -1) {
+      continue;
+    }
+
+    const returnType = text.slice(returnStart, returnEnd).trim();
+    const parameters = parseVhdlParameterList(rawParams);
+    const label = parameters.length > 0
+      ? `function ${name}(${parameters.map(p => p.label).join('; ')}) return ${returnType}`
+      : `function ${name} return ${returnType}`;
+
+    out.push({ name, returnType, parameters, label });
+  }
+
+  return out;
+}
+
+function isWordAt(text: string, index: number, word: string): boolean {
+  const end = index + word.length;
+  if (end > text.length) {
+    return false;
+  }
+
+  if (text.slice(index, end).toLowerCase() !== word.toLowerCase()) {
+    return false;
+  }
+
+  const before = index > 0 ? text[index - 1] : ' ';
+  const after = end < text.length ? text[end] : ' ';
+  return !/[a-zA-Z0-9_]/.test(before) && !/[a-zA-Z0-9_]/.test(after);
+}
+
+function parseVhdlParameterList(rawParams: string): VhdlFunctionParameter[] {
+  const parameters: VhdlFunctionParameter[] = [];
+  const parts = rawParams
+    .split(';')
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  for (const part of parts) {
+    const m = /^([\w,\s]+)\s*:\s*(?:(in|out|inout|buffer)\s+)?(.+)$/i.exec(part);
+    if (!m) {
+      continue;
+    }
+
+    const names = m[1].split(',').map(s => s.trim()).filter(Boolean);
+    const mode = (m[2] ?? 'in').trim().toLowerCase();
+    const typeText = m[3].replace(/\s*:=\s*[\s\S]*$/i, '').trim();
+
+    for (const name of names) {
+      parameters.push({ label: `${name} : ${mode} ${typeText}` });
+    }
+  }
+
+  return parameters;
+}
+
+function getFunctionCallContext(
+  document: vscode.TextDocument,
+  position: vscode.Position
+): { functionName: string; activeParameter: number } | null {
+  const text = document.getText();
+  const cursorOffset = document.offsetAt(position);
+  const stack: Array<{ openOffset: number; functionName: string | null }> = [];
+
+  let inComment = false;
+  for (let i = 0; i < cursorOffset; i++) {
+    const ch = text[i];
+    const next = i + 1 < cursorOffset ? text[i + 1] : '';
+
+    if (inComment) {
+      if (ch === '\n') {
+        inComment = false;
+      }
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      inComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '(') {
+      const fnName = extractFunctionNameBeforeParen(text, i);
+      stack.push({ openOffset: i, functionName: fnName });
+      continue;
+    }
+
+    if (ch === ')' && stack.length > 0) {
+      stack.pop();
+    }
+  }
+
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const frame = stack[i];
+    if (!frame.functionName) {
+      continue;
+    }
+
+    const activeParameter = countTopLevelCommas(text, frame.openOffset + 1, cursorOffset);
+    return {
+      functionName: frame.functionName,
+      activeParameter,
+    };
+  }
+
+  return null;
+}
+
+function extractFunctionNameBeforeParen(text: string, openParenOffset: number): string | null {
+  let i = openParenOffset - 1;
+
+  while (i >= 0 && /\s/.test(text[i])) {
+    i -= 1;
+  }
+
+  if (i < 0) {
+    return null;
+  }
+
+  let end = i;
+  while (i >= 0 && /[a-zA-Z0-9_]/.test(text[i])) {
+    i -= 1;
+  }
+
+  const start = i + 1;
+  if (start > end) {
+    return null;
+  }
+
+  const name = text.slice(start, end + 1);
+  if (!/^[a-zA-Z]\w*$/.test(name)) {
+    return null;
+  }
+
+  return name;
+}
+
+function countTopLevelCommas(text: string, startOffset: number, endOffset: number): number {
+  let depth = 0;
+  let inComment = false;
+  let commas = 0;
+
+  for (let i = startOffset; i < endOffset; i++) {
+    const ch = text[i];
+    const next = i + 1 < endOffset ? text[i + 1] : '';
+
+    if (inComment) {
+      if (ch === '\n') {
+        inComment = false;
+      }
+      continue;
+    }
+
+    if (ch === '-' && next === '-') {
+      inComment = true;
+      i += 1;
+      continue;
+    }
+
+    if (ch === '(') {
+      depth += 1;
+      continue;
+    }
+
+    if (ch === ')' && depth > 0) {
+      depth -= 1;
+      continue;
+    }
+
+    if (ch === ',' && depth === 0) {
+      commas += 1;
+    }
+  }
+
+  return commas;
 }
