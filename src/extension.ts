@@ -35,13 +35,29 @@ type VhdlFunctionSignature = {
   returnType: string;
   parameters: VhdlFunctionParameter[];
   label: string;
+  packageName?: string;
+  sourceUri?: string;
 };
+
+type FunctionCallContext = {
+  functionName: string;
+  packageQualifier?: string;
+  activeParameter: number;
+};
+
+const workspaceFunctionCache = new Map<string, VhdlFunctionSignature[]>();
+const vhdlFileGlob = '**/*.{vhd,vhdl,vho,vht}';
 
 export function activate(context: vscode.ExtensionContext) {
   // --- LSP client ---
   if (!client) {
     console.log('[vhdl-helper] Launching Language Client');
     startLanguageClient(context);
+  }
+
+  void initializeWorkspaceFunctionIndex();
+  for (const doc of vscode.workspace.textDocuments) {
+    updateWorkspaceFunctionCacheForDocument(doc);
   }
 
   // Existing command: Clipboard COMPONENT -> DUT PORT MAP
@@ -140,7 +156,14 @@ export function activate(context: vscode.ExtensionContext) {
     'vhdl',
     {
       provideSignatureHelp(document, position) {
-        const signatures = parseVhdlFunctions(document.getText());
+        const documentUri = document.uri.toString();
+        const localSignatures = parseVhdlFunctions(document.getText()).map(sig => ({
+          ...sig,
+          sourceUri: documentUri,
+        }));
+        const cachedWorkspaceSignatures = getWorkspaceSignaturesExcluding(documentUri);
+        const signatures = dedupeSignatures([...localSignatures, ...cachedWorkspaceSignatures]);
+
         if (signatures.length === 0) {
           return null;
         }
@@ -150,9 +173,18 @@ export function activate(context: vscode.ExtensionContext) {
           return null;
         }
 
-        const matching = signatures.filter(
+        let matching = signatures.filter(
           s => s.name.toLowerCase() === callContext.functionName.toLowerCase()
         );
+
+        if (callContext.packageQualifier) {
+          const qualifiedMatches = matching.filter(
+            s => (s.packageName ?? '').toLowerCase() === callContext.packageQualifier?.toLowerCase()
+          );
+          if (qualifiedMatches.length > 0) {
+            matching = qualifiedMatches;
+          }
+        }
 
         if (matching.length === 0) {
           return null;
@@ -162,6 +194,9 @@ export function activate(context: vscode.ExtensionContext) {
         help.signatures = matching.map((fn): vscode.SignatureInformation => {
           const info = new vscode.SignatureInformation(fn.label);
           info.parameters = fn.parameters.map((p) => new vscode.ParameterInformation(p.label));
+          if (fn.packageName) {
+            info.documentation = new vscode.MarkdownString(`Package: ${fn.packageName}`);
+          }
           return info;
         });
 
@@ -179,6 +214,31 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      updateWorkspaceFunctionCacheForDocument(document);
+    }),
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      updateWorkspaceFunctionCacheForDocument(event.document);
+    }),
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      updateWorkspaceFunctionCacheForDocument(document);
+    }),
+    vscode.workspace.onDidCreateFiles((event) => {
+      for (const file of event.files) {
+        void indexVhdlFile(file);
+      }
+    }),
+    vscode.workspace.onDidDeleteFiles((event) => {
+      for (const file of event.files) {
+        workspaceFunctionCache.delete(file.toString());
+      }
+    }),
+    vscode.workspace.onDidRenameFiles((event) => {
+      for (const renamed of event.files) {
+        workspaceFunctionCache.delete(renamed.oldUri.toString());
+        void indexVhdlFile(renamed.newUri);
+      }
+    }),
     toDutDisposable,
     toSignalsDisposable,
     headerCompletionProvider,
@@ -493,28 +553,163 @@ function transformComponentToSignals(
   return resultLines.join('\n');
 }
 
-function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
+async function initializeWorkspaceFunctionIndex(): Promise<void> {
+  try {
+    const files = await vscode.workspace.findFiles(vhdlFileGlob);
+    await Promise.all(files.map((file) => indexVhdlFile(file)));
+    output.appendLine(`[vhdl-helper] Indexed VHDL function signatures from ${files.length} files.`);
+  } catch (error) {
+    output.appendLine(`[vhdl-helper] Failed to build function index: ${String(error)}`);
+  }
+}
+
+async function indexVhdlFile(fileUri: vscode.Uri): Promise<void> {
+  if (!isVhdlFileUri(fileUri)) {
+    return;
+  }
+
+  try {
+    const document = await vscode.workspace.openTextDocument(fileUri);
+    updateWorkspaceFunctionCacheForDocument(document);
+  } catch (error) {
+    output.appendLine(`[vhdl-helper] Failed to index ${fileUri.fsPath}: ${String(error)}`);
+  }
+}
+
+function updateWorkspaceFunctionCacheForDocument(document: vscode.TextDocument): void {
+  if (!isVhdlDocument(document)) {
+    return;
+  }
+
+  const signatures = parseVhdlFunctions(document.getText()).map(sig => ({
+    ...sig,
+    sourceUri: document.uri.toString(),
+  }));
+
+  workspaceFunctionCache.set(document.uri.toString(), signatures);
+}
+
+function isVhdlDocument(document: vscode.TextDocument): boolean {
+  return document.languageId.toLowerCase() === 'vhdl';
+}
+
+function isVhdlFileUri(fileUri: vscode.Uri): boolean {
+  const lowerPath = fileUri.fsPath.toLowerCase();
+  return lowerPath.endsWith('.vhd') ||
+    lowerPath.endsWith('.vhdl') ||
+    lowerPath.endsWith('.vho') ||
+    lowerPath.endsWith('.vht');
+}
+
+function getWorkspaceSignaturesExcluding(documentUri: string): VhdlFunctionSignature[] {
   const out: VhdlFunctionSignature[] = [];
+  for (const [uri, signatures] of workspaceFunctionCache.entries()) {
+    if (uri === documentUri) {
+      continue;
+    }
+    out.push(...signatures);
+  }
+  return out;
+}
+
+function dedupeSignatures(signatures: VhdlFunctionSignature[]): VhdlFunctionSignature[] {
+  const out: VhdlFunctionSignature[] = [];
+  const seen = new Set<string>();
+
+  for (const sig of signatures) {
+    const key = [
+      sig.sourceUri ?? '',
+      sig.packageName ?? '',
+      sig.name.toLowerCase(),
+      sig.label,
+    ].join('|');
+
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    out.push(sig);
+  }
+
+  return out;
+}
+
+function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
+  const packageBlocks = findPackageBlocks(text);
+  const scopedFunctions = packageBlocks.flatMap((block) =>
+    parseVhdlFunctionsInSegment(text, block.contentStartOffset, block.contentEndOffset, block.packageName)
+  );
+
+  const globalFunctions = parseVhdlFunctionsInSegment(text, 0, text.length)
+    .filter((fn) => !packageBlocks.some((block) =>
+      fn.startOffset >= block.contentStartOffset && fn.startOffset < block.contentEndOffset
+    ));
+
+  return [...globalFunctions, ...scopedFunctions].map((fn) => fn.signature);
+}
+
+function findPackageBlocks(text: string): Array<{
+  packageName: string;
+  contentStartOffset: number;
+  contentEndOffset: number;
+}> {
+  const blocks: Array<{
+    packageName: string;
+    contentStartOffset: number;
+    contentEndOffset: number;
+  }> = [];
+
+  const packageHeader = /\bpackage\s+(?:body\s+)?(\w+)\s+is\b/gi;
+  let headerMatch: RegExpExecArray | null;
+
+  while ((headerMatch = packageHeader.exec(text)) !== null) {
+    const packageName = headerMatch[1];
+    const contentStartOffset = packageHeader.lastIndex;
+    const endRegex = /\bend\s+package(?:\s+body)?(?:\s+\w+)?\s*;/gi;
+    endRegex.lastIndex = contentStartOffset;
+    const endMatch = endRegex.exec(text);
+
+    if (!endMatch) {
+      continue;
+    }
+
+    const contentEndOffset = endMatch.index;
+    blocks.push({ packageName, contentStartOffset, contentEndOffset });
+  }
+
+  return blocks;
+}
+
+function parseVhdlFunctionsInSegment(
+  text: string,
+  segmentStartOffset: number,
+  segmentEndOffset: number,
+  packageName?: string
+): Array<{ signature: VhdlFunctionSignature; startOffset: number }> {
+  const segment = text.slice(segmentStartOffset, segmentEndOffset);
+  const out: Array<{ signature: VhdlFunctionSignature; startOffset: number }> = [];
   const functionKeyword = /\bfunction\s+(\w+)\b/gi;
   let match: RegExpExecArray | null;
 
-  while ((match = functionKeyword.exec(text)) !== null) {
+  while ((match = functionKeyword.exec(segment)) !== null) {
     const name = match[1];
+    const absoluteStartOffset = segmentStartOffset + match.index;
     let i = functionKeyword.lastIndex;
 
-    while (i < text.length && /\s/.test(text[i])) {
+    while (i < segment.length && /\s/.test(segment[i])) {
       i += 1;
     }
 
     let rawParams = '';
-    if (text[i] === '(') {
+    if (segment[i] === '(') {
       const paramStart = i + 1;
       let depth = 1;
       i += 1;
 
-      while (i < text.length && depth > 0) {
-        if (text[i] === '(') depth += 1;
-        else if (text[i] === ')') depth -= 1;
+      while (i < segment.length && depth > 0) {
+        if (segment[i] === '(') depth += 1;
+        else if (segment[i] === ')') depth -= 1;
         i += 1;
       }
 
@@ -522,20 +717,20 @@ function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
         continue;
       }
 
-      rawParams = text.slice(paramStart, i - 1);
+      rawParams = segment.slice(paramStart, i - 1);
 
-      while (i < text.length && /\s/.test(text[i])) {
+      while (i < segment.length && /\s/.test(segment[i])) {
         i += 1;
       }
     }
 
-    const returnWord = text.slice(i, i + 6).toLowerCase();
+    const returnWord = segment.slice(i, i + 6).toLowerCase();
     if (returnWord !== 'return') {
       continue;
     }
     i += 6;
 
-    while (i < text.length && /\s/.test(text[i])) {
+    while (i < segment.length && /\s/.test(segment[i])) {
       i += 1;
     }
 
@@ -543,8 +738,8 @@ function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
     let depth = 0;
     let returnEnd = -1;
 
-    while (i < text.length) {
-      const ch = text[i];
+    while (i < segment.length) {
+      const ch = segment[i];
       if (ch === '(') {
         depth += 1;
         i += 1;
@@ -559,7 +754,7 @@ function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
         returnEnd = i;
         break;
       }
-      if (depth === 0 && isWordAt(text, i, 'is')) {
+      if (depth === 0 && isWordAt(segment, i, 'is')) {
         returnEnd = i;
         break;
       }
@@ -570,13 +765,23 @@ function parseVhdlFunctions(text: string): VhdlFunctionSignature[] {
       continue;
     }
 
-    const returnType = text.slice(returnStart, returnEnd).trim();
+    const returnType = segment.slice(returnStart, returnEnd).trim();
     const parameters = parseVhdlParameterList(rawParams);
-    const label = parameters.length > 0
+    const baseLabel = parameters.length > 0
       ? `function ${name}(${parameters.map(p => p.label).join('; ')}) return ${returnType}`
       : `function ${name} return ${returnType}`;
+    const label = packageName ? `${packageName}.${baseLabel}` : baseLabel;
 
-    out.push({ name, returnType, parameters, label });
+    out.push({
+      startOffset: absoluteStartOffset,
+      signature: {
+        name,
+        returnType,
+        parameters,
+        label,
+        packageName,
+      },
+    });
   }
 
   return out;
@@ -625,10 +830,14 @@ function parseVhdlParameterList(rawParams: string): VhdlFunctionParameter[] {
 function getFunctionCallContext(
   document: vscode.TextDocument,
   position: vscode.Position
-): { functionName: string; activeParameter: number } | null {
+): FunctionCallContext | null {
   const text = document.getText();
   const cursorOffset = document.offsetAt(position);
-  const stack: Array<{ openOffset: number; functionName: string | null }> = [];
+  const stack: Array<{
+    openOffset: number;
+    functionName: string | null;
+    packageQualifier?: string;
+  }> = [];
 
   let inComment = false;
   for (let i = 0; i < cursorOffset; i++) {
@@ -649,8 +858,12 @@ function getFunctionCallContext(
     }
 
     if (ch === '(') {
-      const fnName = extractFunctionNameBeforeParen(text, i);
-      stack.push({ openOffset: i, functionName: fnName });
+      const callInfo = extractFunctionCallInfoBeforeParen(text, i);
+      stack.push({
+        openOffset: i,
+        functionName: callInfo?.functionName ?? null,
+        packageQualifier: callInfo?.packageQualifier,
+      });
       continue;
     }
 
@@ -668,6 +881,7 @@ function getFunctionCallContext(
     const activeParameter = countTopLevelCommas(text, frame.openOffset + 1, cursorOffset);
     return {
       functionName: frame.functionName,
+      packageQualifier: frame.packageQualifier,
       activeParameter,
     };
   }
@@ -675,7 +889,10 @@ function getFunctionCallContext(
   return null;
 }
 
-function extractFunctionNameBeforeParen(text: string, openParenOffset: number): string | null {
+function extractFunctionCallInfoBeforeParen(
+  text: string,
+  openParenOffset: number
+): { functionName: string; packageQualifier?: string } | null {
   let i = openParenOffset - 1;
 
   while (i >= 0 && /\s/.test(text[i])) {
@@ -696,12 +913,41 @@ function extractFunctionNameBeforeParen(text: string, openParenOffset: number): 
     return null;
   }
 
-  const name = text.slice(start, end + 1);
-  if (!/^[a-zA-Z]\w*$/.test(name)) {
+  const functionName = text.slice(start, end + 1);
+  if (!/^[a-zA-Z]\w*$/.test(functionName)) {
     return null;
   }
 
-  return name;
+  let packageQualifier: string | undefined;
+  let j = start - 1;
+  while (j >= 0 && /\s/.test(text[j])) {
+    j -= 1;
+  }
+
+  if (j >= 0 && text[j] === '.') {
+    j -= 1;
+    while (j >= 0 && /\s/.test(text[j])) {
+      j -= 1;
+    }
+
+    const qualifierEnd = j;
+    while (j >= 0 && /[a-zA-Z0-9_]/.test(text[j])) {
+      j -= 1;
+    }
+    const qualifierStart = j + 1;
+
+    if (qualifierStart <= qualifierEnd) {
+      const qualifier = text.slice(qualifierStart, qualifierEnd + 1);
+      if (/^[a-zA-Z]\w*$/.test(qualifier)) {
+        packageQualifier = qualifier;
+      }
+    }
+  }
+
+  return {
+    functionName,
+    packageQualifier,
+  };
 }
 
 function countTopLevelCommas(text: string, startOffset: number, endOffset: number): number {

@@ -1,4 +1,7 @@
 v 4
-file / "c:\Users\rommelfangerc\vscode-vhdl-helper\vhdl_test_dir\test.vhdl" "a4a251170a000ae571c11cace303dec566927feb" "20260423200744.421":
-  entity clc at 14( 250) + 0 on 37;
-  architecture rtl of clc at 26( 514) + 0 on 38;
+file / "c:\Users\rommelfangerc\vscode-vhdl-helper\vhdl_test_dir\test.vhdl" "19c9cf3c927cdcfb38ac42ed0b276bb609d570ff" "20260423201108.962":
+  entity clc at 14( 250) + 0 on 45;
+  architecture rtl of clc at 30( 554) + 0 on 46;
+file / "c:\Users\rommelfangerc\vscode-vhdl-helper\vhdl_test_dir\Types.vhdl" "60ae38220851b3c4fab326721a132c5d6d8ec9eb" "20260423201518.646":
+  package types at 1( 0) + 0 on 49 body;
+  package body types at 38( 1844) + 0 on 50;
