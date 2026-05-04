@@ -47,10 +47,11 @@ SIGNAL p    : STD_LOGIC_VECTOR(3 DOWNTO 0);
 SIGNAL g    : STD_LOGIC_VECTOR(3 DOWNTO 0);
 SIGNAL t    : address_t;
 SIGNAL r    : register_t;
+SIGNAL unused : STD_LOGIC;
 
 SIGNAL test_state : CU_States_t;
 
-SIGNAL tet : opcode_t := (OTHERS => '0');
+SIGNAL tet : opcode_t := (OTHERS => '0');	
 
 SIGNAL tet1 : sub_instr_t := (OTHERS => '0');
 -- SIGNAL cout : STD_LOGIC_VECTOR(3 DOWNTO 0);

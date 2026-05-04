@@ -69,12 +69,38 @@ const workspaceFunctionCache = new Map<string, VhdlFunctionSignature[]>();
 const workspaceSymbolCache = new Map<string, VhdlTypedSymbol[]>();
 const vhdlFileGlob = '**/*.{vhd,vhdl,vho,vht}';
 
+// Decoration type for unused symbols — subtle gray, no squiggly underline
+const unusedSymbolDecoration = vscode.window.createTextEditorDecorationType({
+  color: 'rgba(120, 124, 128, 0.65)',
+  backgroundColor: 'rgba(120, 124, 128, 0.03)',
+  fontStyle: 'italic',
+  borderRadius: '2px',
+  overviewRulerColor: 'rgba(120, 124, 128, 0.25)',
+  overviewRulerLane: vscode.OverviewRulerLane.Right,
+});
+
+// Cache for unused symbols per document
+const unusedSymbolsCache = new Map<string, UnusedSymbol[]>();
+
+type UnusedSymbol = {
+  name: string;
+  startLine: number;
+  startChar: number;
+  endLine: number;
+  endChar: number;
+};
+
 export function activate(context: vscode.ExtensionContext) {
+  output.appendLine('\n\n========== VHDL HELPER EXTENSION ACTIVATED ==========');
+  output.appendLine(`[vhdl-helper] Activation time: ${new Date().toISOString()}`);
+  
   // --- LSP client ---
   if (!client) {
     console.log('[vhdl-helper] Launching Language Client');
     startLanguageClient(context);
   }
+
+  output.appendLine('[vhdl-helper] Extension activation started');
 
   void initializeWorkspaceFunctionIndex();
   for (const doc of vscode.workspace.textDocuments) {
@@ -175,6 +201,85 @@ export function activate(context: vscode.ExtensionContext) {
       } catch (error) {
         output.appendLine(`[vhdl-helper] Failed to open origin: ${String(error)}`);
       }
+    }
+  );
+
+  const refreshGhdlCacheDisposable = vscode.commands.registerCommand(
+    'vhdlHelper.refreshGhdlCache',
+    async () => {
+      if (!client || !client.isRunning()) {
+        vscode.window.showErrorMessage('VHDL Helper: Language server is not running.');
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Refreshing GHDL cache and re-analyzing workspace',
+          cancellable: false,
+        },
+        async () => {
+          try {
+            output.appendLine('[vhdl-helper] Sending vhdl/refreshGhdlCache request to server...');
+            
+            // Send custom LSP request to server
+            const result = await client!.sendRequest('vhdl/refreshGhdlCache', {});
+            
+            output.appendLine(`[vhdl-helper] Server refresh completed: ${JSON.stringify(result)}`);
+            
+            // Refresh decorations for visible editors
+            for (const editor of vscode.window.visibleTextEditors) {
+              if (isVhdlDocument(editor.document)) {
+                await applyUnusedSymbolDecorations(editor);
+              }
+            }
+            
+            // Show summary message
+            const summary = result as any;
+            const filesProcessed = summary.filesProcessed || 0;
+            const filesSuccessful = summary.filesSuccessful || 0;
+            const cacheFilesCleared = summary.cacheFilesCleared || 0;
+            
+            vscode.window.showInformationMessage(
+              `VHDL Helper: Refreshed GHDL cache. ${filesProcessed} file${filesProcessed === 1 ? '' : 's'} processed, ${filesSuccessful} compiled successfully, ${cacheFilesCleared} cache file${cacheFilesCleared === 1 ? '' : 's'} cleared.`
+            );
+          } catch (error) {
+            output.appendLine(`[vhdl-helper] Error refreshing GHDL cache: ${String(error)}`);
+            vscode.window.showErrorMessage(`VHDL Helper: Failed to refresh GHDL cache: ${String(error)}`);
+          }
+        }
+      );
+    }
+  );
+
+  // TEST command: Highlight unused symbols
+  const testHighlightUnusedDisposable = vscode.commands.registerCommand(
+    'vhdlHelper.testHighlightUnused',
+    async () => {
+      output.appendLine('\n========== TEST COMMAND TRIGGERED ==========');
+      output.appendLine(`[vhdl-helper] testHighlightUnused command triggered at ${new Date().toISOString()}`);
+      
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        output.appendLine('[vhdl-helper] ERROR: No active editor');
+        vscode.window.showErrorMessage('No active editor');
+        return;
+      }
+
+      output.appendLine(`[vhdl-helper] Active editor: ${editor.document.fileName}`);
+      output.appendLine(`[vhdl-helper] Language ID: ${editor.document.languageId}`);
+      output.appendLine(`[vhdl-helper] Document URI: ${editor.document.uri.toString()}`);
+      
+      if (!isVhdlDocument(editor.document)) {
+        output.appendLine('[vhdl-helper] ERROR: Not a VHDL document');
+        vscode.window.showErrorMessage('Not a VHDL document');
+        return;
+      }
+
+      output.appendLine('[vhdl-helper] Document is VHDL, applying decorations...');
+      await applyUnusedSymbolDecorations(editor);
+      output.appendLine('[vhdl-helper] Test command completed');
+      vscode.window.showInformationMessage('Unused symbols highlighting complete. Check output panel.');
     }
   );
 
@@ -380,16 +485,52 @@ export function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
+      output.appendLine(`[vhdl-helper] onDidOpenTextDocument: ${document.fileName}`);
       updateWorkspaceFunctionCacheForDocument(document);
       updateWorkspaceSymbolCacheForDocument(document);
+      if (isVhdlDocument(document)) {
+        output.appendLine(`[vhdl-helper] VHDL document opened, scheduling decoration update`);
+        // Schedule the decoration update with a small delay to ensure editor is ready
+        setTimeout(() => {
+          for (const editor of vscode.window.visibleTextEditors) {
+            if (editor.document.uri.toString() === document.uri.toString()) {
+              output.appendLine(`[vhdl-helper] Found editor for ${document.fileName}, applying decorations`);
+              applyUnusedSymbolDecorations(editor);
+              break;
+            }
+          }
+        }, 100);
+      }
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
+      output.appendLine(`[vhdl-helper] onDidChangeTextDocument: ${event.document.fileName}`);
       updateWorkspaceFunctionCacheForDocument(event.document);
       updateWorkspaceSymbolCacheForDocument(event.document);
+      if (isVhdlDocument(event.document)) {
+        output.appendLine(`[vhdl-helper] VHDL document changed, updating decorations`);
+        for (const editor of vscode.window.visibleTextEditors) {
+          if (editor.document.uri.toString() === event.document.uri.toString()) {
+            output.appendLine(`[vhdl-helper] Updating decorations for ${event.document.fileName}`);
+            void applyUnusedSymbolDecorations(editor);
+            break;
+          }
+        }
+      }
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
+      output.appendLine(`[vhdl-helper] onDidSaveTextDocument: ${document.fileName}`);
       updateWorkspaceFunctionCacheForDocument(document);
       updateWorkspaceSymbolCacheForDocument(document);
+      if (isVhdlDocument(document)) {
+        output.appendLine(`[vhdl-helper] VHDL document saved, updating decorations`);
+        for (const editor of vscode.window.visibleTextEditors) {
+          if (editor.document.uri.toString() === document.uri.toString()) {
+            output.appendLine(`[vhdl-helper] Updating decorations for saved document ${document.fileName}`);
+            void applyUnusedSymbolDecorations(editor);
+            break;
+          }
+        }
+      }
     }),
     vscode.workspace.onDidCreateFiles((event) => {
       for (const file of event.files) {
@@ -400,23 +541,42 @@ export function activate(context: vscode.ExtensionContext) {
       for (const file of event.files) {
         workspaceFunctionCache.delete(file.toString());
         workspaceSymbolCache.delete(file.toString());
+        unusedSymbolsCache.delete(file.toString());
       }
     }),
     vscode.workspace.onDidRenameFiles((event) => {
       for (const renamed of event.files) {
         workspaceFunctionCache.delete(renamed.oldUri.toString());
         workspaceSymbolCache.delete(renamed.oldUri.toString());
+        unusedSymbolsCache.delete(renamed.oldUri.toString());
         void indexVhdlFile(renamed.newUri);
+      }
+    }),
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      if (editor && isVhdlDocument(editor.document)) {
+        output.appendLine(`[vhdl-helper] Active editor changed to VHDL: ${editor.document.fileName}`);
+        void applyUnusedSymbolDecorations(editor);
       }
     }),
     toDutDisposable,
     toSignalsDisposable,
     openOriginDisposable,
+    refreshGhdlCacheDisposable,
+    testHighlightUnusedDisposable,
     headerCompletionProvider,
     parameterAwareCompletionProvider,
     functionSignatureProvider,
     originHoverProvider
   );
+
+  // Apply initial decorations to all visible VHDL editors
+  output.appendLine(`[vhdl-helper] Applying initial decorations to ${vscode.window.visibleTextEditors.length} visible editors`);
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (isVhdlDocument(editor.document)) {
+      output.appendLine(`[vhdl-helper] Applying initial decorations to ${editor.document.fileName}`);
+      setTimeout(() => void applyUnusedSymbolDecorations(editor), 100);
+    }
+  }
 }
 
 export function deactivate(): Thenable<void> | undefined {
@@ -1083,13 +1243,39 @@ function parseVhdlTypedSymbolsInSegment(
   const segment = text.slice(segmentStartOffset, segmentEndOffset);
   const sanitizedSegment = segment.replace(/--.*$/gm, '');
 
+  // Build mapping from sanitizedSegment index -> original segment index
+  const sanitizedToOriginal: number[] = [];
+  {
+    let origI = 0;
+    let sanJ = 0;
+    while (origI < segment.length) {
+      if (segment.startsWith('--', origI)) {
+        // skip until end of line (but keep the newline)
+        while (origI < segment.length && segment[origI] !== '\n') {
+          origI += 1;
+        }
+        // If newline char exists, copy it into sanitized and map it
+        if (origI < segment.length && segment[origI] === '\n') {
+          sanitizedToOriginal[sanJ++] = origI;
+          origI += 1;
+        }
+        continue;
+      }
+      // copy this char
+      sanitizedToOriginal[sanJ++] = origI;
+      origI += 1;
+    }
+  }
+
   const declarationRegex = /\b(signal|variable|constant)\s+([\w\s,]+?)\s*:\s*([\s\S]*?);/gi;
   let declMatch: RegExpExecArray | null;
   while ((declMatch = declarationRegex.exec(sanitizedSegment)) !== null) {
     const kind = declMatch[1].toLowerCase() as VhdlTypedSymbolKind;
     const names = declMatch[2].split(',').map((s) => s.trim()).filter(Boolean);
     const typeText = declMatch[3].replace(/\s*:=\s*[\s\S]*$/i, '').trim();
-    const declarationOffset = segmentStartOffset + declMatch.index;
+    const sanIndex = declMatch.index;
+    const origIndex = (sanitizedToOriginal[sanIndex] ?? sanIndex);
+    const declarationOffset = segmentStartOffset + origIndex;
     for (const name of names) {
       symbols.push({ name, typeText, kind, packageName, declarationOffset });
     }
@@ -1098,16 +1284,20 @@ function parseVhdlTypedSymbolsInSegment(
   const genericRegex = /\bgeneric\s*\(([\s\S]*?)\)\s*;/gi;
   let genericMatch: RegExpExecArray | null;
   while ((genericMatch = genericRegex.exec(sanitizedSegment)) !== null) {
+    const sanIndex = genericMatch.index;
+    const origIndex = (sanitizedToOriginal[sanIndex] ?? sanIndex);
     symbols.push(
-      ...parseInterfaceBlockSymbols(genericMatch[1], 'generic', packageName, segmentStartOffset + genericMatch.index)
+      ...parseInterfaceBlockSymbols(genericMatch[1], 'generic', packageName, segmentStartOffset + origIndex)
     );
   }
 
   const portRegex = /\bport\s*\(([\s\S]*?)\)\s*;/gi;
   let portMatch: RegExpExecArray | null;
   while ((portMatch = portRegex.exec(sanitizedSegment)) !== null) {
+    const sanIndex = portMatch.index;
+    const origIndex = (sanitizedToOriginal[sanIndex] ?? sanIndex);
     symbols.push(
-      ...parseInterfaceBlockSymbols(portMatch[1], 'port', packageName, segmentStartOffset + portMatch.index)
+      ...parseInterfaceBlockSymbols(portMatch[1], 'port', packageName, segmentStartOffset + origIndex)
     );
   }
 
@@ -1673,4 +1863,234 @@ function countTopLevelCommas(text: string, startOffset: number, endOffset: numbe
   }
 
   return commas;
+}
+
+/**
+ * Find all unused symbols in a document using simple text search.
+ * A symbol is considered unused if it appears only on its declaration line.
+ */
+async function findUnusedSymbols(document: vscode.TextDocument): Promise<UnusedSymbol[]> {
+  try {
+    const symbols = parseVhdlTypedSymbols(document.getText());
+    output.appendLine(`[vhdl-helper] Parsing document: found ${symbols.length} symbols`);
+    
+    if (symbols.length === 0) {
+      return [];
+    }
+
+    // Skip ports and generics as they might be used outside the file
+    const symbolsToCheck = symbols.filter(s => s.kind !== 'port' && s.kind !== 'generic');
+    output.appendLine(`[vhdl-helper] Checking ${symbolsToCheck.length} symbols (excluding ports/generics)`);
+    
+    const unused: UnusedSymbol[] = [];
+    const documentText = document.getText();
+    const lines = documentText.split('\n');
+    
+    for (const symbol of symbolsToCheck) {
+      if (symbol.declarationOffset === undefined) {
+        continue;
+      }
+
+      try {
+        // Find the declaration position and log offsets for diagnostics
+        const declPosition = document.positionAt(symbol.declarationOffset);
+        const declLine = declPosition.line;
+        output.appendLine(`[vhdl-helper]   '${symbol.name}' found on line ${declLine + 1} (offset ${symbol.declarationOffset})`);
+
+        // First, try to use the language server / VS Code reference provider if available
+        let foundUsageElsewhere = false;
+        let refProviderTried = false;
+        try {
+          // executeCommand returns an array of Location when supported
+          // It may throw or return undefined if not supported by the language server
+          // We pass the declaration position as the position to query references for
+          // and expect the declaration itself to be included in the returned list.
+          // If more than one location is returned, the symbol is used elsewhere.
+          // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+          // @ts-ignore
+          const refs = await vscode.commands.executeCommand('vscode.executeReferenceProvider', document.uri, declPosition) as vscode.Location[] | undefined;
+          refProviderTried = true;
+          if (Array.isArray(refs)) {
+            output.appendLine(`[vhdl-helper] Reference provider returned ${refs.length} refs for '${symbol.name}'`);
+            if (refs.length > 1) {
+              foundUsageElsewhere = true;
+            } else {
+              foundUsageElsewhere = false;
+            }
+          } else {
+            output.appendLine(`[vhdl-helper] Reference provider returned no results for '${symbol.name}'`);
+          }
+        } catch (e) {
+          output.appendLine(`[vhdl-helper] Reference provider failed for '${symbol.name}': ${String(e)}`);
+        }
+
+        // If reference provider wasn't available or gave no useful info, fallback to text search
+        if (!refProviderTried || foundUsageElsewhere === false) {
+          // We'll perform a conservative text search on the original document text,
+          // ignoring comment tails and skipping the declaration line. This is a fallback
+          // and may produce false positives/negatives, but is safer than relying solely on
+          // a sanitized text copy that can shift offsets.
+          const searchRegex = new RegExp(`\\b${escapeRegExp(symbol.name)}\\b`, 'i');
+          for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+            if (lineNum === declLine) continue;
+            const rawLine = lines[lineNum];
+            const lineNoComments = rawLine.replace(/--.*$/,'');
+            if (!lineNoComments.trim()) continue;
+            const m = searchRegex.exec(lineNoComments);
+            if (m) {
+              foundUsageElsewhere = true;
+              const matchIndex = m.index ?? -1;
+              const matchedText = m[0];
+              output.appendLine(`[vhdl-helper]   '${symbol.name}' text-search fallback match on line ${lineNum + 1} at index ${matchIndex}: "${matchedText}"`);
+              output.appendLine(`[vhdl-helper]     rawLine: ${rawLine.trim()}`);
+              output.appendLine(`[vhdl-helper]     lineNoComments: ${lineNoComments.trim()}`);
+              break;
+            }
+          }
+        }
+
+        if (!foundUsageElsewhere) {
+          output.appendLine(`[vhdl-helper] UNUSED: '${symbol.name}' (${symbol.kind})`);
+
+          // Try to find the symbol on the declaration line (best-effort)
+          const declLineText = lines[declLine] ?? '';
+          output.appendLine(`[vhdl-helper]     declaration line text: ${declLineText.trim()}`);
+          const symbolIndex = findSymbolNameInDeclaration(declLineText, symbol.name);
+          output.appendLine(`[vhdl-helper]     findSymbolNameInDeclaration returned index: ${symbolIndex}`);
+          if (symbolIndex >= 0) {
+            unused.push({
+              name: symbol.name,
+              startLine: declLine,
+              startChar: symbolIndex,
+              endLine: declLine,
+              endChar: symbolIndex + symbol.name.length,
+            });
+          } else {
+            // As a last resort, search the declaration line for a raw match
+            const fallbackMatch = declLineText.match(new RegExp(`\\b${escapeRegExp(symbol.name)}\\b`, 'i'));
+            if (fallbackMatch && fallbackMatch.index !== undefined) {
+              unused.push({
+                name: symbol.name,
+                startLine: declLine,
+                startChar: fallbackMatch.index,
+                endLine: declLine,
+                endChar: fallbackMatch.index + symbol.name.length,
+              });
+            }
+          }
+        } else {
+          output.appendLine(`[vhdl-helper] USED: '${symbol.name}' (${symbol.kind})`);
+        }
+      } catch (error) {
+        output.appendLine(`[vhdl-helper] Error checking symbol '${symbol.name}': ${String(error)}`);
+      }
+    }
+
+    output.appendLine(`[vhdl-helper] Found ${unused.length} unused symbols total`);
+    return unused;
+  } catch (error) {
+    output.appendLine(`[vhdl-helper] Error in findUnusedSymbols: ${String(error)}`);
+    return [];
+  }
+}
+
+
+
+/**
+ * Find the position of a symbol name in a declaration line.
+ */
+function findSymbolNameInDeclaration(lineText: string, symbolName: string): number {
+  // Look for patterns like: signal x : type; or variable x : type;
+  // We want to find the first occurrence of the symbol name after signal/variable/constant keyword
+  const keywords = ['signal', 'variable', 'constant'];
+  
+  for (const keyword of keywords) {
+    const keywordLower = keyword.toLowerCase();
+    const lineLower = lineText.toLowerCase();
+    const keywordIndex = lineLower.indexOf(keywordLower);
+    
+    if (keywordIndex >= 0) {
+      // Search for symbol name after the keyword
+      const afterKeywordIndex = keywordIndex + keyword.length;
+      const afterKeyword = lineText.slice(afterKeywordIndex);
+      const symbolMatch = afterKeyword.match(new RegExp(`\\b${escapeRegExp(symbolName)}\\b`, 'i'));
+      
+      if (symbolMatch && symbolMatch.index !== undefined) {
+        return afterKeywordIndex + symbolMatch.index;
+      }
+    }
+  }
+
+  // Fallback: find first occurrence with word boundary
+  const wordBoundaryMatch = lineText.match(new RegExp(`\\b${escapeRegExp(symbolName)}\\b`, 'i'));
+  if (wordBoundaryMatch && wordBoundaryMatch.index !== undefined) {
+    return wordBoundaryMatch.index;
+  }
+
+  return -1;
+}
+
+/**
+ * Escape special regex characters.
+ */
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Apply unused symbol decorations to a text editor.
+ */
+async function applyUnusedSymbolDecorations(editor: vscode.TextEditor): Promise<void> {
+  try {
+    output.appendLine(`[vhdl-helper] applyUnusedSymbolDecorations called for: ${editor.document.fileName}`);
+    
+    if (!isVhdlDocument(editor.document)) {
+      output.appendLine(`[vhdl-helper] Not a VHDL document, skipping`);
+      return;
+    }
+
+    output.appendLine(`[vhdl-helper] Finding unused symbols...`);
+    const unusedSymbols = await findUnusedSymbols(editor.document);
+    output.appendLine(`[vhdl-helper] Found ${unusedSymbols.length} unused symbols`);
+    
+    unusedSymbolsCache.set(editor.document.uri.toString(), unusedSymbols);
+
+    const decorations: vscode.DecorationOptions[] = unusedSymbols.map((symbol, idx) => {
+      output.appendLine(`[vhdl-helper] Creating decoration ${idx + 1}: '${symbol.name}' at line ${symbol.startLine + 1}, chars ${symbol.startChar}-${symbol.endChar}`);
+      return {
+        range: new vscode.Range(
+          new vscode.Position(symbol.startLine, symbol.startChar),
+          new vscode.Position(symbol.endLine, symbol.endChar)
+        ),
+        hoverMessage: `Unused ${findSymbolKind(editor.document, symbol.name)}`,
+      };
+    });
+
+    output.appendLine(`[vhdl-helper] Setting ${decorations.length} decorations on editor`);
+    editor.setDecorations(unusedSymbolDecoration, decorations);
+    output.appendLine(`[vhdl-helper] Decorations applied successfully`);
+  } catch (error) {
+    output.appendLine(`[vhdl-helper] ERROR in applyUnusedSymbolDecorations: ${String(error)}`);
+    console.error('[vhdl-helper] Error:', error);
+  }
+}
+
+/**
+ * Find the kind of symbol for hover message.
+ */
+function findSymbolKind(document: vscode.TextDocument, symbolName: string): string {
+  const symbols = parseVhdlTypedSymbols(document.getText());
+  const symbol = symbols.find((s) => s.name.toLowerCase() === symbolName.toLowerCase());
+  return symbol?.kind ?? 'symbol';
+}
+
+/**
+ * Update decorations for all visible VHDL editors.
+ */
+function updateAllUnusedSymbolDecorations(): void {
+  for (const editor of vscode.window.visibleTextEditors) {
+    if (isVhdlDocument(editor.document)) {
+      void applyUnusedSymbolDecorations(editor);
+    }
+  }
 }

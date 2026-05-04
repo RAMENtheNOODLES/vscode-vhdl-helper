@@ -46,6 +46,13 @@ Configure these behaviors via the `vhdl.*` settings described below.
   - Default keybinding: `Ctrl+Alt+D`
 - **VHDL: Clipboard COMPONENT → SIGNAL DECLARATIONS** (`vhdlHelper.clipboardComponentToSignals`)
   - Default keybinding: `Ctrl+Alt+S`
+- **VHDL Helper: Refresh GHDL Cache** (`vhdlHelper.refreshGhdlCache`)
+  - Performs a workspace-wide GHDL cache refresh. The language server will:
+    - Scan the workspace for all VHDL files
+    - Clear existing `work-obj*.cf` cache files
+    - Recompile all files in dependency order with GHDL
+    - Re-index the workspace for accurate definitions and completion
+  - Useful when the GHDL cache becomes stale or out of sync with source files. No manual file opening required—all dependencies are automatically compiled.
 
 ## Settings
 
