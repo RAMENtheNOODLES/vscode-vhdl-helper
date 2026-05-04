@@ -2,7 +2,7 @@
   "name": "vhdl-helper",
   "displayName": "VHDL Helper",
   "description": "VHDL snippets + a language server",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "publisher": "CookieJAR499",
   "repository": {
     "type": "git",
@@ -57,6 +57,10 @@
       {
         "command": "vhdlHelper.clipboardComponentToSignals",
         "title": "VHDL Helper: Clipboard COMPONENT → SIGNAL declarations"
+      },
+      {
+        "command": "vhdlHelper.testHighlightUnused",
+        "title": "VHDL Helper: Test - Highlight Unused Symbols"
       }
     ],
     "keybindings": [
