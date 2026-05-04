@@ -204,6 +204,54 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const refreshGhdlCacheDisposable = vscode.commands.registerCommand(
+    'vhdlHelper.refreshGhdlCache',
+    async () => {
+      if (!client || !client.isRunning()) {
+        vscode.window.showErrorMessage('VHDL Helper: Language server is not running.');
+        return;
+      }
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: 'Refreshing GHDL cache and re-analyzing workspace',
+          cancellable: false,
+        },
+        async () => {
+          try {
+            output.appendLine('[vhdl-helper] Sending vhdl/refreshGhdlCache request to server...');
+            
+            // Send custom LSP request to server
+            const result = await client!.sendRequest('vhdl/refreshGhdlCache', {});
+            
+            output.appendLine(`[vhdl-helper] Server refresh completed: ${JSON.stringify(result)}`);
+            
+            // Refresh decorations for visible editors
+            for (const editor of vscode.window.visibleTextEditors) {
+              if (isVhdlDocument(editor.document)) {
+                await applyUnusedSymbolDecorations(editor);
+              }
+            }
+            
+            // Show summary message
+            const summary = result as any;
+            const filesProcessed = summary.filesProcessed || 0;
+            const filesSuccessful = summary.filesSuccessful || 0;
+            const cacheFilesCleared = summary.cacheFilesCleared || 0;
+            
+            vscode.window.showInformationMessage(
+              `VHDL Helper: Refreshed GHDL cache. ${filesProcessed} file${filesProcessed === 1 ? '' : 's'} processed, ${filesSuccessful} compiled successfully, ${cacheFilesCleared} cache file${cacheFilesCleared === 1 ? '' : 's'} cleared.`
+            );
+          } catch (error) {
+            output.appendLine(`[vhdl-helper] Error refreshing GHDL cache: ${String(error)}`);
+            vscode.window.showErrorMessage(`VHDL Helper: Failed to refresh GHDL cache: ${String(error)}`);
+          }
+        }
+      );
+    }
+  );
+
   // TEST command: Highlight unused symbols
   const testHighlightUnusedDisposable = vscode.commands.registerCommand(
     'vhdlHelper.testHighlightUnused',
@@ -513,6 +561,7 @@ export function activate(context: vscode.ExtensionContext) {
     toDutDisposable,
     toSignalsDisposable,
     openOriginDisposable,
+    refreshGhdlCacheDisposable,
     testHighlightUnusedDisposable,
     headerCompletionProvider,
     parameterAwareCompletionProvider,
