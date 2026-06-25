@@ -80,6 +80,30 @@ t <= GET_REG(r);
 test : PROCESS
 BEGIN
     GET_CURRENT_INSTRUCTION(tet);
-END PROCESS;
+END PROCESS test;
+
+COMPONENT COUNTER IS
+
+PORT (
+
+    i_clk       : IN  STD_LOGIC;
+    i_count_en  : IN  STD_LOGIC;
+    i_reset_l   : IN  STD_LOGIC;
+
+    o_out       : OUT STD_LOGIC_VECTOR(data_width - 1 DOWNTO 0)
+
+);
+END COMPONENT;
+
+COMPONENT CLC IS
+PORT (
+
+    i_a		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
+    i_b		: IN    STD_LOGIC_VECTOR(3 DOWNTO 0);
+    i_cin   : IN    STD_LOGIC;
+    o_cout  : INOUT STD_LOGIC_VECTOR(4 DOWNTO 0)
+
+);
+END COMPONENT;
 
 END rtl;
