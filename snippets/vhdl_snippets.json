@@ -42,12 +42,12 @@
     "description": "Architecture template",
     "body": [
       "ARCHITECTURE ${1|rtl,behavioral,struct|} OF $TM_FILENAME_BASE IS",
-      "-- COMPONENTS",
-      "$2\n",
-      "-- SIGNALS",
-      "$3\n",
+      "\t-- COMPONENTS",
+      "\t$2\n",
+      "\t-- SIGNALS",
+      "\t$3\n",
       "BEGIN\n",
-      "$0\n",
+      "\t$0\n",
       "END $1;"
     ]
   },
@@ -56,7 +56,7 @@
     "body": [
       "$1 : PROCESS",
       "BEGIN",
-      "$0",
+      "\t$0",
       "END PROCESS;"
     ]
   },
@@ -65,7 +65,7 @@
     "description": "Convert a VHDL ENTITY (from clipboard) into a COMPONENT declaration",
     "body": [
       "COMPONENT ${1:${CLIPBOARD/[\\s\\S]*?\\bENTITY\\s+(\\w+)\\s+IS[\\s\\S]*/$1/}} IS",
-      "PORT (",
+      "${CLIPBOARD/[\\s\\S]*?(\\bGENERIC\\s*\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*;\\s*)?\\bPORT\\b[\\s\\S]*/$1PORT (/}",
       "${CLIPBOARD/[\\s\\S]*?\\bPORT\\s*\\(((?:[^()]|\\([^()]*\\))*)\\)\\s*;?[\\s\\S]*/$1/}",
       ");",
       "END COMPONENT;"
@@ -77,6 +77,20 @@
     "body": [
       "-- Press Ctrl+Alt+D to insert DUT PORT MAP from clipboard COMPONENT",
       "$0"
+    ]
+  },
+  "Clocked Process": {
+	"prefix": "clk",
+	"description": "Snippet to have a clocked process with a reset on low",
+	"body": [
+      "$1 : PROCESS(${2:i_clk}, ${3:i_rst_l})",
+      "BEGIN",
+      "\tIF ($3 = '0') THEN",
+	  "\t\t$0",
+	  "\tELSIF (RISING_EDGE($2)) THEN",
+	  "\t\t",
+	  "\tEND IF;",
+      "END PROCESS $1;"
     ]
   }
 }

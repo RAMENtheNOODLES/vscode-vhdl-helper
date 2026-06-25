@@ -38,3 +38,15 @@ BEGIN
   END PROCESS;
 
 END rtl;
+
+COMPONENT COUNTER IS
+PORT (
+
+    i_clk       : IN  STD_LOGIC;
+    i_count_en  : IN  STD_LOGIC;
+    i_reset_l   : IN  STD_LOGIC;
+
+    o_out       : OUT STD_LOGIC_VECTOR(data_width - 1 DOWNTO 0)
+
+);
+END COMPONENT;
